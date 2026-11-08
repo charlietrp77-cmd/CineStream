@@ -142,6 +142,44 @@ export function computeQualityScore(badges: StreamBadges): number {
   return score;
 }
 
+export function buildStreamUrls(
+  internalBaseUrl: string,
+  configInput: string,
+  type: string,
+  id: string
+): string[] {
+  const cleaned = configInput.trim();
+  const urls: string[] = [];
+
+  // If full URL e.g. http://domain:3001/stremio/uuid/password/manifest.json or stremio://...
+  if (/^(stremio|https?):\/\//i.test(cleaned)) {
+    try {
+      const parsed = new URL(cleaned.replace(/^stremio:/i, 'http:'));
+      let path = parsed.pathname.replace(/\/manifest\.json$/i, '').replace(/\/$/, '');
+      if (!path.startsWith('/')) path = '/' + path;
+
+      urls.push(`${internalBaseUrl}${path}/stream/${type}/${id}.json`);
+      urls.push(`${internalBaseUrl}${path}/${type}/${id}.json`);
+      return urls;
+    } catch (_) {}
+  }
+
+  // Clean path format
+  const cleanPath = cleaned.replace(/\/manifest\.json$/i, '').replace(/^\/+/, '').replace(/\/+$/, '');
+
+  if (cleanPath.startsWith('stremio/')) {
+    urls.push(`${internalBaseUrl}/${cleanPath}/stream/${type}/${id}.json`);
+    urls.push(`${internalBaseUrl}/${cleanPath}/${type}/${id}.json`);
+  } else {
+    // AIOStreams v2 authenticated routes
+    urls.push(`${internalBaseUrl}/stremio/${cleanPath}/stream/${type}/${id}.json`);
+    urls.push(`${internalBaseUrl}/stremio/${cleanPath}/${type}/${id}.json`);
+    urls.push(`${internalBaseUrl}/${cleanPath}/stream/${type}/${id}.json`);
+  }
+
+  return urls;
+}
+
 export function cleanConfigToken(rawConfig: string): string {
   let cleaned = rawConfig.trim();
   cleaned = cleaned.replace(/^(stremio|https?):\/\/[^/]+\//i, '');
@@ -164,41 +202,59 @@ class AioStreamsService {
       return [];
     }
 
-    const activeConfig = cleanConfigToken(rawConfig);
-    if (!activeConfig) {
-      return [];
+    const candidateUrls = buildStreamUrls(config.aiostreamsInternalUrl, rawConfig, type, id);
+
+    for (const url of candidateUrls) {
+      try {
+        const response = await undiciFetch(url, {
+          headers: { 'User-Agent': 'CineStream/1.0.0' },
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (!response.ok) {
+          continue;
+        }
+
+        const json = (await response.json()) as { streams?: AioRawStream[] };
+        const streams = json.streams || [];
+
+        // Check if AIOStreams returned a reconfigure error notice
+        const isErrorNotice = streams.some((s: any) =>
+          s.streamData?.type === 'error' ||
+          (s.name && s.name.includes('❌')) ||
+          (s.description && s.description.includes('requires you to reconfigure'))
+        );
+
+        if (isErrorNotice) {
+          continue;
+        }
+
+        if (streams.length > 0) {
+          return streams;
+        }
+      } catch (err) {
+        // Fallback for host-mode
+        if (!url.includes(':3001')) {
+          try {
+            const fallbackHostUrl = url.replace(config.aiostreamsInternalUrl, 'http://127.0.0.1:3001');
+            const res2 = await undiciFetch(fallbackHostUrl, {
+              headers: { 'User-Agent': 'CineStream/1.0.0' },
+              signal: AbortSignal.timeout(8000),
+            });
+            if (res2.ok) {
+              const json2 = (await res2.json()) as { streams?: AioRawStream[] };
+              const streams2 = json2.streams || [];
+              const isErr2 = streams2.some((s: any) => s.streamData?.type === 'error' || s.name?.includes('❌'));
+              if (!isErr2 && streams2.length > 0) {
+                return streams2;
+              }
+            }
+          } catch (_) {}
+        }
+      }
     }
 
-    const url = `${config.aiostreamsInternalUrl}/${activeConfig}/stream/${type}/${id}.json`;
-
-    try {
-      const response = await undiciFetch(url, {
-        headers: { 'User-Agent': 'CineStream/1.0.0' },
-      });
-
-      if (!response.ok) {
-        return [];
-      }
-
-      const json = (await response.json()) as { streams?: AioRawStream[] };
-      return json.streams || [];
-    } catch (err) {
-      // Fallback for host-mode testing
-      if (!url.includes(':3001')) {
-        try {
-          const fallbackUrl = `http://127.0.0.1:3001/${activeConfig}/stream/${type}/${id}.json`;
-          const res2 = await undiciFetch(fallbackUrl, {
-            headers: { 'User-Agent': 'CineStream/1.0.0' },
-          });
-          if (res2.ok) {
-            const json2 = (await res2.json()) as { streams?: AioRawStream[] };
-            return json2.streams || [];
-          }
-        } catch (_) {}
-      }
-      console.error(`Error querying AIOStreams at ${url}:`, err);
-      return [];
-    }
+    return [];
   }
 
   public async resolveStreams(
