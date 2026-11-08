@@ -105,3 +105,4 @@ export async function diagnosticsRoutes(fastify: FastifyInstance, _opts: Fastify
     return reply.send(report);
   });
 }
+
