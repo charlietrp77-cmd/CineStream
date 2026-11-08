@@ -7,6 +7,7 @@ services:
       - "${AIOSTREAMS_PORT:-3001}:3000"
     environment:
       - SECRET_KEY=${AIOSTREAMS_SECRET_KEY}
+      - AIOSTREAMS_AUTH=${AIOSTREAMS_AUTH:-admin:cinestream123}
       - ADDON_PASSWORD=${AIOSTREAMS_ADDON_PASSWORD:-}
       - BASE_URL=${AIOSTREAMS_BASE_URL:-http://aiostreams:3000}
     volumes:
