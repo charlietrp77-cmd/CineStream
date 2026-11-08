@@ -44,7 +44,7 @@ export interface ResolvedStream {
   qualityScore: number;
 }
 
-const CAM_REGEX = /\b(CAM|HDCAM|CAMRIP|TS|TELESYNC|HDTS|TC|TELECINE|SCR|SCREENER|WORKPRINT)\b/i;
+const CAM_REGEX = /\b(CAM|HDCAM|CAM-?RIP|TS-?RIP|TELESYNC|HD-?TS|TELE-?CINE|DVD-?SCR|SCREENER|WORKPRINT)\b/i;
 
 export function isCamStream(text: string): boolean {
   return CAM_REGEX.test(text);
@@ -148,7 +148,8 @@ export function buildStreamUrls(
   type: string,
   id: string
 ): string[] {
-  const cleaned = configInput.trim();
+  let cleaned = configInput.trim();
+  cleaned = cleaned.replace(/^AIOSTREAMS_USER_CONFIG\s*=\s*/i, '');
   const urls: string[] = [];
 
   // If full URL e.g. http://domain:3001/stremio/uuid/password/manifest.json or stremio://...
@@ -308,10 +309,12 @@ class AioStreamsService {
     // Sort by quality score descending
     results.sort((a, b) => b.qualityScore - a.qualityScore);
 
-    this.prefetchCache.set(cacheKey, {
-      streams: results,
-      expiresAt: now + 15 * 60 * 1000, // 15 mins cache
-    });
+    if (results.length > 0) {
+      this.prefetchCache.set(cacheKey, {
+        streams: results,
+        expiresAt: now + 15 * 60 * 1000, // 15 mins cache
+      });
+    }
 
     return results;
   }
