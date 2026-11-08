@@ -142,6 +142,15 @@ export function computeQualityScore(badges: StreamBadges): number {
   return score;
 }
 
+export function cleanConfigToken(rawConfig: string): string {
+  let cleaned = rawConfig.trim();
+  cleaned = cleaned.replace(/^(stremio|https?):\/\/[^/]+\//i, '');
+  cleaned = cleaned.replace(/^\//, '');
+  cleaned = cleaned.replace(/\/manifest\.json$/i, '');
+  cleaned = cleaned.replace(/\/$/, '');
+  return cleaned;
+}
+
 class AioStreamsService {
   private prefetchCache = new Map<string, { streams: ResolvedStream[]; expiresAt: number }>();
 
@@ -150,7 +159,12 @@ class AioStreamsService {
     id: string,
     configOverride?: string | null
   ): Promise<AioRawStream[]> {
-    const activeConfig = configOverride || config.aiostreamsUserConfig;
+    const rawConfig = configOverride || config.aiostreamsUserConfig;
+    if (!rawConfig) {
+      return [];
+    }
+
+    const activeConfig = cleanConfigToken(rawConfig);
     if (!activeConfig) {
       return [];
     }
@@ -169,6 +183,19 @@ class AioStreamsService {
       const json = (await response.json()) as { streams?: AioRawStream[] };
       return json.streams || [];
     } catch (err) {
+      // Fallback for host-mode testing
+      if (!url.includes(':3001')) {
+        try {
+          const fallbackUrl = `http://127.0.0.1:3001/${activeConfig}/stream/${type}/${id}.json`;
+          const res2 = await undiciFetch(fallbackUrl, {
+            headers: { 'User-Agent': 'CineStream/1.0.0' },
+          });
+          if (res2.ok) {
+            const json2 = (await res2.json()) as { streams?: AioRawStream[] };
+            return json2.streams || [];
+          }
+        } catch (_) {}
+      }
       console.error(`Error querying AIOStreams at ${url}:`, err);
       return [];
     }

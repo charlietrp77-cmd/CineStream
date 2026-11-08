@@ -11,8 +11,8 @@ export async function streamRoutes(fastify: FastifyInstance, _opts: FastifyPlugi
     const { type, imdbId } = req.params as { type: 'movie' | 'tv'; imdbId: string };
     const query = req.query as { season?: string; episode?: string };
 
-    const seasonNumber = query.season ? parseInt(query.season, 10) : 0;
-    const episodeNumber = query.episode ? parseInt(query.episode, 10) : 0;
+    const seasonNumber = query.season ? parseInt(query.season, 10) : (type === 'tv' ? 1 : 0);
+    const episodeNumber = query.episode ? parseInt(query.episode, 10) : (type === 'tv' ? 1 : 0);
 
     const profileId = (req.headers['x-profile-id'] as string) || '';
     const profile = profileId ? getProfileById(profileId) : undefined;

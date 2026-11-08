@@ -20,7 +20,7 @@ services:
       retries: 3
 
   cinestream:
-    image: ${CINESTREAM_IMAGE:-ghcr.io/yourusername/cinestream:latest}
+    image: ${CINESTREAM_IMAGE:-ghcr.io/charlietrp77-cmd/cinestream:latest}
     build:
       context: .
       dockerfile: Dockerfile
