@@ -60,11 +60,8 @@ export async function diagnosticsRoutes(fastify: FastifyInstance, _opts: Fastify
     }
 
     // 3. Test Stream Resolution for Dune 2 (tt15239678)
-    const testConfigInput =
-      rawEnvConfig ||
-      (report.profiles.length > 0 && report.profiles[0].rawConfigOverride
-        ? report.profiles[0].rawConfigOverride
-        : '');
+    const profileOverride = report.profiles.find((p: any) => p.rawConfigOverride)?.rawConfigOverride;
+    const testConfigInput = profileOverride || rawEnvConfig || '';
 
     if (!testConfigInput) {
       report.testStreamResult = {
@@ -97,6 +94,7 @@ export async function diagnosticsRoutes(fastify: FastifyInstance, _opts: Fastify
       const resolvedStreams = await aioStreams.resolveStreams('movie', 'tt15239678', testConfigInput);
 
       report.testStreamResult = {
+        activeConfigUsed: testConfigInput,
         candidateUrlsAttempted: attemptedResults,
         resolvedStreamCount: resolvedStreams.length,
         bestStreamFound: resolvedStreams.length > 0 ? {
