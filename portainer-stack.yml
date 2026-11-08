@@ -1,0 +1,70 @@
+services:
+  aiostreams:
+    image: ghcr.io/viren070/aiostreams:latest
+    container_name: cinestream-aiostreams
+    restart: unless-stopped
+    ports:
+      - "${AIOSTREAMS_PORT:-3001}:3000"
+    environment:
+      - SECRET_KEY=${AIOSTREAMS_SECRET_KEY}
+      - ADDON_PASSWORD=${AIOSTREAMS_ADDON_PASSWORD:-}
+      - BASE_URL=${AIOSTREAMS_BASE_URL:-http://aiostreams:3000}
+    volumes:
+      - aiostreams_data:/app/data
+    networks:
+      - cinestream_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  cinestream:
+    image: ${CINESTREAM_IMAGE:-ghcr.io/yourusername/cinestream:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cinestream-app
+    restart: unless-stopped
+    ports:
+      - "${CINESTREAM_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_PATH=/app/data/cinestream.sqlite
+      - NAS_CACHE_PATH=/mnt/nas
+      - NAS_MAX_CONCURRENT_DOWNLOADS=${NAS_MAX_CONCURRENT_DOWNLOADS:-2}
+      - NAS_THREADS_PER_DOWNLOAD=${NAS_THREADS_PER_DOWNLOAD:-6}
+      - PUBLIC_SERVER_URL=${PUBLIC_SERVER_URL:-http://192.168.1.50:3000}
+      - AIOSTREAMS_INTERNAL_URL=http://aiostreams:3000
+      - AIOSTREAMS_USER_CONFIG=${AIOSTREAMS_USER_CONFIG}
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - DEFAULT_COUNTRY=${DEFAULT_COUNTRY:-ZA}
+      - PROXY_CONNECTIONS=${PROXY_CONNECTIONS:-8}
+      - PROXY_CHUNK_SIZE_MB=${PROXY_CHUNK_SIZE_MB:-8}
+      - PROXY_READAHEAD_MB=${PROXY_READAHEAD_MB:-64}
+    volumes:
+      - cinestream_data:/app/data
+      - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
+    networks:
+      - cinestream_net
+    depends_on:
+      - aiostreams
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  aiostreams_data:
+    driver: local
+  cinestream_data:
+    driver: local
+  nas_media_cache:
+    driver: local
+
+networks:
+  cinestream_net:
+    driver: bridge
+
