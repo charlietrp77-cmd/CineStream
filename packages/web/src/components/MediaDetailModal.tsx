@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Play,
@@ -12,6 +12,9 @@ import {
   Layers,
   RefreshCw,
   Clock,
+  CheckCheck,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { CatalogItem, ResolvedStream, TvSeasonEpisode, NasCacheItem } from '../types/api';
 import { useProfileStore } from '../store/useProfileStore';
@@ -55,13 +58,20 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const [nasSuccessMessage, setNasSuccessMessage] = useState<string | null>(null);
   const [nasJobs, setNasJobs] = useState<NasCacheItem[]>([]);
 
+  // Watch Progress State (Keyed by `${season}:${episode}`)
+  const [watchedEpisodes, setWatchedEpisodes] = useState<
+    Map<string, { isCompleted: boolean; positionMs: number; durationMs: number }>
+  >(new Map());
+
   // Load streams & initial TV details
   useEffect(() => {
     setCurrentImdbId(item.imdbId);
     if (item.type === 'tv') {
       fetchSeriesInfo();
+      fetchWatchProgress();
     } else {
       loadStreams(0, 0, item.imdbId);
+      fetchWatchProgress();
     }
     checkMyList();
   }, [item]);
@@ -69,8 +79,9 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   useEffect(() => {
     if (item.type === 'tv') {
       fetchSeasonEpisodes(selectedSeason);
+      fetchWatchProgress();
     }
-  }, [selectedSeason]);
+  }, [selectedSeason, currentImdbId]);
 
   // Sync NAS jobs and WebSocket updates
   useEffect(() => {
@@ -108,6 +119,27 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           (j) => j.imdb_id === currentImdbId || j.imdb_id === item.imdbId
         );
         setNasJobs(relevant);
+      }
+    } catch (_) {}
+  };
+
+  const fetchWatchProgress = async () => {
+    try {
+      const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
+      const res = await fetch(`/api/progress/series/${encodeURIComponent(targetImdb)}?tmdb_id=${item.tmdbId}`, {
+        headers: { 'X-Profile-Id': activeProfile?.id || '' },
+      });
+      if (res.ok) {
+        const rows = await res.json();
+        const map = new Map<string, { isCompleted: boolean; positionMs: number; durationMs: number }>();
+        for (const r of rows) {
+          map.set(`${r.season}:${r.episode}`, {
+            isCompleted: Boolean(r.is_completed),
+            positionMs: r.position_ms || 0,
+            durationMs: r.duration_ms || 0,
+          });
+        }
+        setWatchedEpisodes(map);
       }
     } catch (_) {}
   };
@@ -218,8 +250,152 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     } catch (_) {}
   };
 
+  const lastWatched = useMemo(() => {
+    let maxSeason = 0;
+    let maxEpisode = 0;
+    for (const [key, val] of watchedEpisodes.entries()) {
+      if (val.isCompleted) {
+        const [sStr, eStr] = key.split(':');
+        const s = parseInt(sStr, 10);
+        const e = parseInt(eStr, 10);
+        if (s > maxSeason || (s === maxSeason && e > maxEpisode)) {
+          maxSeason = s;
+          maxEpisode = e;
+        }
+      }
+    }
+    return maxSeason > 0 ? { season: maxSeason, episode: maxEpisode } : null;
+  }, [watchedEpisodes]);
+
+  const isSeasonFullyWatched = useMemo(() => {
+    if (episodes.length === 0) return false;
+    return episodes.every((ep) => {
+      const prog = watchedEpisodes.get(`${selectedSeason}:${ep.episodeNumber}`);
+      return prog?.isCompleted;
+    });
+  }, [episodes, watchedEpisodes, selectedSeason]);
+
+  const handleToggleEpisodeWatched = async (seasonNum: number, ep: TvSeasonEpisode) => {
+    const key = `${seasonNum}:${ep.episodeNumber}`;
+    const current = watchedEpisodes.get(key);
+    const newCompleted = !current?.isCompleted;
+
+    // Optimistic update
+    setWatchedEpisodes((prev) => {
+      const next = new Map(prev);
+      next.set(key, {
+        isCompleted: newCompleted,
+        positionMs: newCompleted ? (current?.durationMs || 1000) : 0,
+        durationMs: current?.durationMs || 1000,
+      });
+      return next;
+    });
+
+    try {
+      const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
+      await fetch('/api/progress/mark-watched', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Profile-Id': activeProfile?.id || '',
+        },
+        body: JSON.stringify({
+          imdb_id: targetImdb,
+          tmdb_id: item.tmdbId,
+          media_type: 'tv',
+          season: seasonNum,
+          episode: ep.episodeNumber,
+          title: item.title,
+          episode_title: ep.title,
+          poster_url: item.posterUrl,
+          backdrop_url: item.backdropUrl,
+          is_completed: newCompleted,
+        }),
+      });
+    } catch (_) {}
+  };
+
+  const handleMarkBatchWatched = async (
+    scope: 'before_episode' | 'before_season' | 'season',
+    seasonNum: number,
+    episodeNum?: number,
+    unmark?: boolean
+  ) => {
+    // Optimistic update
+    setWatchedEpisodes((prev) => {
+      const next = new Map(prev);
+      if (scope === 'season') {
+        episodes.forEach((e) => {
+          next.set(`${seasonNum}:${e.episodeNumber}`, {
+            isCompleted: !unmark,
+            positionMs: !unmark ? 1000 : 0,
+            durationMs: 1000,
+          });
+        });
+      } else if (scope === 'before_episode' && episodeNum !== undefined) {
+        episodes.forEach((e) => {
+          if (e.episodeNumber <= episodeNum) {
+            next.set(`${seasonNum}:${e.episodeNumber}`, {
+              isCompleted: true,
+              positionMs: 1000,
+              durationMs: 1000,
+            });
+          }
+        });
+      }
+      return next;
+    });
+
+    try {
+      const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
+      const res = await fetch('/api/progress/mark-all-before', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Profile-Id': activeProfile?.id || '',
+        },
+        body: JSON.stringify({
+          imdb_id: targetImdb,
+          tmdb_id: item.tmdbId,
+          season: seasonNum,
+          episode: episodeNum,
+          scope,
+          unmark,
+          title: item.title,
+          poster_url: item.posterUrl,
+          backdrop_url: item.backdropUrl,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.rows) {
+          const map = new Map<string, { isCompleted: boolean; positionMs: number; durationMs: number }>();
+          for (const r of data.rows) {
+            map.set(`${r.season}:${r.episode}`, {
+              isCompleted: Boolean(r.is_completed),
+              positionMs: r.position_ms || 0,
+              durationMs: r.duration_ms || 0,
+            });
+          }
+          setWatchedEpisodes(map);
+        }
+        const msg =
+          scope === 'before_episode'
+            ? `Marked all episodes up to S${seasonNum}E${episodeNum} as watched!`
+            : scope === 'before_season'
+            ? `Marked all seasons prior to Season ${seasonNum} as watched!`
+            : unmark
+            ? `Marked Season ${seasonNum} as unwatched.`
+            : `Marked Season ${seasonNum} as watched!`;
+        setNasSuccessMessage(msg);
+        setTimeout(() => setNasSuccessMessage(null), 4000);
+      }
+    } catch (_) {}
+  };
+
   const handleNasCache = async (
-    scope: 'movie' | 'episode' | 'remaining_season' | 'season' | 'all_seasons',
+    scope: 'movie' | 'episode' | 'remaining_season' | 'season' | 'all_seasons' | 'remaining_after_watched',
     overrideSeason?: number,
     overrideEpisode?: number
   ) => {
@@ -318,6 +494,41 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         ...prev.filter((j) => j.season !== seasonNumber || !epsToQueue.some((e) => e.episodeNumber === j.episode)),
         ...newJobs,
       ]);
+    } else if (scope === 'remaining_after_watched') {
+      const startSeason = lastWatched ? lastWatched.season : 1;
+      const startEp = lastWatched ? lastWatched.episode : 0;
+      const epsToQueue = episodes.filter(
+        (ep) => selectedSeason > startSeason || (selectedSeason === startSeason && ep.episodeNumber > startEp)
+      );
+      const newJobs: NasCacheItem[] = epsToQueue.map((ep) => ({
+        id: `${targetImdb}:${selectedSeason}:${ep.episodeNumber}`,
+        imdb_id: targetImdb,
+        tmdb_id: item.tmdbId,
+        media_type: 'tv',
+        title: item.title,
+        episode_title: ep.title,
+        season: selectedSeason,
+        episode: ep.episodeNumber,
+        poster_url: item.posterUrl,
+        backdrop_url: item.backdropUrl,
+        source_url: '',
+        source_headers_json: '{}',
+        binge_group: null,
+        quality_badge: null,
+        file_path: '',
+        file_size_bytes: 0,
+        downloaded_bytes: 0,
+        speed_bytes_per_sec: 0,
+        status: 'queued',
+        error_message: null,
+        requested_by_profile_id: activeProfile?.id || null,
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      }));
+      setNasJobs((prev) => [
+        ...prev.filter((j) => j.season !== selectedSeason || !epsToQueue.some((e) => e.episodeNumber === j.episode)),
+        ...newJobs,
+      ]);
     }
 
     try {
@@ -346,6 +557,10 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             ? `Season ${seasonNumber} (${data.queuedCount || 'all'} episodes)`
             : scope === 'all_seasons'
             ? 'All Seasons'
+            : scope === 'remaining_after_watched'
+            ? lastWatched
+              ? `Remaining Episodes after S${lastWatched.season}E${lastWatched.episode} (${data.queuedCount || 'all'})`
+              : `All Remaining Episodes (${data.queuedCount || 'all'})`
             : `${data.queuedCount} item(s)`;
         setNasSuccessMessage(`Queued ${label} for NAS caching!`);
         setTimeout(() => setNasSuccessMessage(null), 4000);
@@ -778,30 +993,49 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   </button>
 
                   {isNasMenuOpen && (
-                    <div className="absolute left-0 sm:right-0 sm:left-auto mt-2 w-56 bg-[#202020] border border-white/10 rounded-lg shadow-2xl py-1 z-30 text-xs">
+                    <div className="absolute left-0 sm:right-0 sm:left-auto mt-2 w-64 bg-[#202020] border border-white/10 rounded-lg shadow-2xl py-1 z-30 text-xs">
+                      {/* Smart Cache Remaining based on Watched */}
+                      <button
+                        onClick={() => handleNasCache('remaining_after_watched')}
+                        className="w-full text-left px-4 py-2.5 hover:bg-white/10 font-bold text-amber-300 flex items-center justify-between border-b border-white/5"
+                        title="Cache all unwatched aired episodes from after the last watched episode onwards"
+                      >
+                        <div className="flex flex-col">
+                          <span>
+                            {lastWatched
+                              ? `Cache Remaining (after S${lastWatched.season}E${lastWatched.episode})`
+                              : 'Cache Remaining (All Unwatched)'}
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-normal">
+                            Based on your watch history
+                          </span>
+                        </div>
+                        <Zap className="w-3.5 h-3.5 fill-amber-300 flex-none" />
+                      </button>
+
                       <button
                         onClick={() => handleNasCache('episode')}
-                        className="w-full text-left px-4 py-2 hover:bg-white/10"
+                        className="w-full text-left px-4 py-2 hover:bg-white/10 text-gray-200"
                       >
                         Cache Ep {currentEpNum}
                       </button>
                       <button
                         onClick={() => handleNasCache('remaining_season')}
-                        className="w-full text-left px-4 py-2 hover:bg-white/10"
+                        className="w-full text-left px-4 py-2 hover:bg-white/10 text-gray-200"
                       >
-                        Cache Remaining Season {selectedSeason}
+                        Cache Remaining in Season {selectedSeason}
                       </button>
                       <button
                         onClick={() => handleNasCache('season')}
-                        className="w-full text-left px-4 py-2 hover:bg-white/10"
+                        className="w-full text-left px-4 py-2 hover:bg-white/10 text-gray-200"
                       >
                         Cache Entire Season {selectedSeason}
                       </button>
                       <button
                         onClick={() => handleNasCache('all_seasons')}
-                        className="w-full text-left px-4 py-2 hover:bg-white/10 font-bold text-amber-400"
+                        className="w-full text-left px-4 py-2 hover:bg-white/10 font-bold text-amber-400 border-t border-white/5"
                       >
-                        Cache All Seasons
+                        Cache All Seasons (Full Series)
                       </button>
                     </div>
                   )}
@@ -858,7 +1092,42 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-bold text-lg">Episodes</h3>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Mark Season Watched Toggle */}
+                  <button
+                    onClick={() => handleMarkBatchWatched('season', selectedSeason, undefined, isSeasonFullyWatched)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold border transition-all ${
+                      isSeasonFullyWatched
+                        ? 'bg-purple-600/30 text-purple-300 border-purple-500/40 hover:bg-purple-600/50'
+                        : 'bg-white/5 hover:bg-white/15 text-gray-300 border-white/10'
+                    }`}
+                    title={isSeasonFullyWatched ? `Mark Season ${selectedSeason} as unwatched` : `Mark entire Season ${selectedSeason} as watched`}
+                  >
+                    {isSeasonFullyWatched ? (
+                      <>
+                        <CheckCheck className="w-3.5 h-3.5 text-purple-400 stroke-[2.5]" />
+                        <span>Season Watched</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-gray-400" />
+                        <span>Mark Season Watched</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Mark All Prior Seasons Watched (when season > 1) */}
+                  {selectedSeason > 1 && (
+                    <button
+                      onClick={() => handleMarkBatchWatched('before_season', selectedSeason)}
+                      className="flex items-center gap-1.5 bg-white/5 hover:bg-white/15 text-gray-300 border border-white/10 px-2.5 py-1.5 rounded text-xs font-semibold transition-all"
+                      title={`Mark all prior seasons (S1 through S${selectedSeason - 1}) as watched`}
+                    >
+                      <Layers className="w-3.5 h-3.5 text-gray-400" />
+                      <span>Mark Prior Seasons Watched</span>
+                    </button>
+                  )}
+
                   {isEntireSeasonCached ? (
                     <span className="flex items-center gap-1.5 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 px-3 py-1.5 rounded text-xs font-semibold shadow">
                       <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -912,6 +1181,12 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     ? Math.min(100, Math.round((epJob.downloaded_bytes / epJob.file_size_bytes) * 100))
                     : 0;
 
+                  const epProgress = watchedEpisodes.get(`${selectedSeason}:${ep.episodeNumber}`);
+                  const isEpWatched = epProgress?.isCompleted || (epProgress && epProgress.durationMs > 0 && epProgress.positionMs >= epProgress.durationMs * 0.9);
+                  const progressPercent = epProgress && epProgress.durationMs > 0
+                    ? Math.min(100, Math.round((epProgress.positionMs / epProgress.durationMs) * 100))
+                    : 0;
+
                   return (
                     <div
                       key={ep.episodeNumber}
@@ -937,6 +1212,8 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                             EP {ep.episodeNumber}
                           </div>
                         )}
+
+                        {/* NAS status badge */}
                         {isEpCompleted && (
                           <div className="absolute top-1 left-1 bg-emerald-500 text-black p-0.5 rounded shadow" title="Cached on NAS">
                             <Check className="w-2.5 h-2.5 stroke-[3]" />
@@ -952,6 +1229,21 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                             <Clock className="w-2.5 h-2.5 stroke-[3]" />
                           </div>
                         )}
+
+                        {/* Watched badge on thumbnail */}
+                        {isEpWatched && (
+                          <div className="absolute top-1 right-1 bg-purple-600/90 text-white px-1 py-0.5 rounded text-[8px] font-black uppercase flex items-center gap-0.5 shadow backdrop-blur-sm" title="Watched">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                            <span>Watched</span>
+                          </div>
+                        )}
+
+                        {/* Playback Progress Bar */}
+                        {progressPercent > 0 && !isEpWatched && (
+                          <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-900">
+                            <div className="h-full bg-red-600 transition-all" style={{ width: `${progressPercent}%` }} />
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex-1 min-w-0">
@@ -960,7 +1252,8 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                             {ep.episodeNumber}. {ep.title}
                           </span>
 
-                          <div className="flex items-center gap-1.5 flex-none ml-1">
+                          <div className="flex items-center gap-1 flex-none ml-1">
+                            {/* NAS Cache Badge / Button */}
                             {isEpCompleted ? (
                               <span
                                 className="flex items-center gap-1 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded text-[10px] font-bold"
@@ -999,13 +1292,46 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                               </button>
                             )}
 
+                            {/* Mark Episode Watched / Unwatched Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleEpisodeWatched(selectedSeason, ep);
+                              }}
+                              className={`p-1 rounded transition-colors ${
+                                isEpWatched
+                                  ? 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/20'
+                                  : 'text-gray-400 hover:text-white hover:bg-white/20'
+                              }`}
+                              title={isEpWatched ? 'Mark episode as unwatched' : 'Mark episode as watched'}
+                            >
+                              {isEpWatched ? (
+                                <CheckCheck className="w-3.5 h-3.5 stroke-[2.5]" />
+                              ) : (
+                                <Check className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+
+                            {/* Mark All Episodes Prior to This as Watched */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMarkBatchWatched('before_episode', selectedSeason, ep.episodeNumber);
+                              }}
+                              className="p-1 hover:bg-white/20 text-gray-400 hover:text-white rounded transition-colors"
+                              title={`Mark all episodes up to S${selectedSeason}E${ep.episodeNumber} as watched`}
+                            >
+                              <Layers className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Device Download Button */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeviceDownloadEpisode(selectedSeason, ep);
                               }}
                               className="p-1 hover:bg-white/20 text-gray-400 hover:text-white rounded transition-colors"
-                              title={isEpCompleted ? "Download episode to device from NAS" : "Download episode to device"}
+                              title={isEpCompleted ? 'Download episode to device from NAS' : 'Download episode to device'}
                             >
                               <Download className="w-3.5 h-3.5" />
                             </button>

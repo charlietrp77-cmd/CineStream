@@ -23,7 +23,7 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       imdbId: string;
       tmdbId: number;
       mediaType: 'movie' | 'tv';
-      scope: 'movie' | 'episode' | 'remaining_season' | 'season' | 'all_seasons';
+      scope: 'movie' | 'episode' | 'remaining_season' | 'season' | 'all_seasons' | 'remaining_after_watched';
       seasonNumber?: number;
       episodeNumber?: number;
       preferredQuality?: '2160p' | '1080p';
@@ -80,16 +80,68 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
           episode: currentEpisode,
           episodeTitle: ep?.title || `Episode ${currentEpisode}`,
         });
-      } else if (body.scope === 'season' || body.scope === 'remaining_season') {
+      } else if (body.scope === 'season') {
         const episodes = await tmdb.getSeasonEpisodes(body.tmdbId, currentSeason, body.imdbId);
         for (const ep of episodes) {
           if (!ep.isAired) continue;
-          if (body.scope === 'remaining_season' && ep.episodeNumber < currentEpisode) continue;
           targetEpisodes.push({
             season: currentSeason,
             episode: ep.episodeNumber,
             episodeTitle: ep.title,
           });
+        }
+      } else if (body.scope === 'remaining_season') {
+        // Find highest watched episode in this season if episodeNumber wasn't explicitly supplied
+        let minEpisodeToCache = body.episodeNumber;
+        if (minEpisodeToCache === undefined) {
+          const watchedInSeason = db.prepare(`
+            SELECT max(episode) as max_ep FROM watch_progress
+            WHERE profile_id = ? AND (imdb_id = ? OR tmdb_id = ?) AND season = ? AND is_completed = 1
+          `).get(profileId, body.imdbId, body.tmdbId, currentSeason) as { max_ep: number | null };
+          minEpisodeToCache = (watchedInSeason?.max_ep || 0) + 1;
+        }
+
+        const episodes = await tmdb.getSeasonEpisodes(body.tmdbId, currentSeason, body.imdbId);
+        for (const ep of episodes) {
+          if (!ep.isAired) continue;
+          if (ep.episodeNumber < minEpisodeToCache) continue;
+          targetEpisodes.push({
+            season: currentSeason,
+            episode: ep.episodeNumber,
+            episodeTitle: ep.title,
+          });
+        }
+      } else if (body.scope === 'remaining_after_watched') {
+        // Query last watched episode across the entire series
+        const watchedRows = db.prepare(`
+          SELECT season, episode FROM watch_progress
+          WHERE profile_id = ? AND (imdb_id = ? OR tmdb_id = ?) AND is_completed = 1
+          ORDER BY season DESC, episode DESC
+        `).all(profileId, body.imdbId, body.tmdbId) as { season: number; episode: number }[];
+
+        let lastWatchedSeason = 0;
+        let lastWatchedEpisode = 0;
+        if (watchedRows.length > 0) {
+          lastWatchedSeason = watchedRows[0].season;
+          lastWatchedEpisode = watchedRows[0].episode;
+        }
+
+        const validSeasons = (seriesDetails?.seasons || []).filter((s: any) => s.season_number > 0);
+        for (const s of validSeasons) {
+          if (s.season_number < lastWatchedSeason) continue;
+
+          const episodes = await tmdb.getSeasonEpisodes(body.tmdbId, s.season_number, body.imdbId);
+          for (const ep of episodes) {
+            if (!ep.isAired) continue;
+            if (s.season_number === lastWatchedSeason && ep.episodeNumber <= lastWatchedEpisode) {
+              continue;
+            }
+            targetEpisodes.push({
+              season: s.season_number,
+              episode: ep.episodeNumber,
+              episodeTitle: ep.title,
+            });
+          }
         }
       } else if (body.scope === 'all_seasons') {
         const validSeasons = (seriesDetails?.seasons || []).filter((s: any) => s.season_number > 0);
