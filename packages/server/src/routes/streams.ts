@@ -4,15 +4,25 @@ import { config } from '../config';
 import { db } from '../db';
 import { NasCacheItemRow } from '../db/schema';
 import { aioStreams, ResolvedStream } from '../services/aiostreams';
+import { tmdb } from '../services/tmdb';
 import { getProfileById } from './profiles';
 
 export async function streamRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions) {
   fastify.get('/api/streams/:type/:imdbId', async (req: FastifyRequest, reply: FastifyReply) => {
-    const { type, imdbId } = req.params as { type: 'movie' | 'tv'; imdbId: string };
+    const { type, imdbId } = req.params as { type: 'movie' | 'tv' | 'series'; imdbId: string };
     const query = req.query as { season?: string; episode?: string };
 
-    const seasonNumber = query.season ? parseInt(query.season, 10) : (type === 'tv' ? 1 : 0);
-    const episodeNumber = query.episode ? parseInt(query.episode, 10) : (type === 'tv' ? 1 : 0);
+    const isTv = type === 'tv' || type === 'series';
+    const seasonNumber = query.season ? parseInt(query.season, 10) : (isTv ? 1 : 0);
+    const episodeNumber = query.episode ? parseInt(query.episode, 10) : (isTv ? 1 : 0);
+
+    let actualImdbId = imdbId;
+    if (!actualImdbId.startsWith('tt')) {
+      const tmdbIdNum = parseInt(actualImdbId.replace(/^tmdb_/, ''), 10);
+      if (!isNaN(tmdbIdNum)) {
+        actualImdbId = await tmdb.getImdbId(isTv ? 'tv' : 'movie', tmdbIdNum);
+      }
+    }
 
     const profileId = (req.headers['x-profile-id'] as string) || '';
     const profile = profileId ? getProfileById(profileId) : undefined;
@@ -25,7 +35,7 @@ export async function streamRoutes(fastify: FastifyInstance, _opts: FastifyPlugi
       SELECT * FROM nas_cache_items
       WHERE imdb_id = ? AND season = ? AND episode = ? AND status = 'completed'
     `);
-    const nasItem = nasStmt.get(imdbId, seasonNumber, episodeNumber) as NasCacheItemRow | undefined;
+    const nasItem = nasStmt.get(actualImdbId, seasonNumber, episodeNumber) as NasCacheItemRow | undefined;
 
     if (nasItem && fs.existsSync(nasItem.file_path)) {
       const is4K = Boolean(nasItem.quality_badge?.includes('4K') || nasItem.quality_badge?.includes('2160p'));
@@ -64,9 +74,10 @@ export async function streamRoutes(fastify: FastifyInstance, _opts: FastifyPlugi
       results.push(nasStream);
     }
 
-    // 2. Fetch AIOStreams streams
-    const streamLookupId = type === 'tv' ? `${imdbId}:${seasonNumber}:${episodeNumber}` : imdbId;
-    const externalStreams = await aioStreams.resolveStreams(type, streamLookupId, configOverride);
+    // 2. Fetch AIOStreams streams (strictly mapped to Stremio series / movie)
+    const stremioType = isTv ? 'series' : 'movie';
+    const streamLookupId = isTv ? `${actualImdbId}:${seasonNumber}:${episodeNumber}` : actualImdbId;
+    const externalStreams = await aioStreams.resolveStreams(stremioType, streamLookupId, configOverride);
 
     results.push(...externalStreams);
 
@@ -75,7 +86,7 @@ export async function streamRoutes(fastify: FastifyInstance, _opts: FastifyPlugi
 
   fastify.post('/api/streams/prefetch', async (req: FastifyRequest, reply: FastifyReply) => {
     const body = req.body as {
-      type: 'movie' | 'tv';
+      type: 'movie' | 'tv' | 'series';
       imdbId: string;
       season?: number;
       episode?: number;
@@ -85,17 +96,26 @@ export async function streamRoutes(fastify: FastifyInstance, _opts: FastifyPlugi
       return reply.status(400).send({ error: 'type and imdbId required' });
     }
 
+    const isTv = body.type === 'tv' || body.type === 'series';
+    let actualImdbId = body.imdbId;
+    if (!actualImdbId.startsWith('tt')) {
+      const tmdbIdNum = parseInt(actualImdbId.replace(/^tmdb_/, ''), 10);
+      if (!isNaN(tmdbIdNum)) {
+        actualImdbId = await tmdb.getImdbId(isTv ? 'tv' : 'movie', tmdbIdNum);
+      }
+    }
+
     const profileId = (req.headers['x-profile-id'] as string) || '';
     const profile = profileId ? getProfileById(profileId) : undefined;
     const configOverride = profile?.aiostreams_config_override;
 
-    const streamLookupId =
-      body.type === 'tv'
-        ? `${body.imdbId}:${body.season || 1}:${body.episode || 1}`
-        : body.imdbId;
+    const stremioType = isTv ? 'series' : 'movie';
+    const streamLookupId = isTv
+      ? `${actualImdbId}:${body.season || 1}:${body.episode || 1}`
+      : actualImdbId;
 
     // Fire and forget prefetch
-    aioStreams.prefetchStreams(body.type, streamLookupId, configOverride).catch(() => {});
+    aioStreams.prefetchStreams(stremioType, streamLookupId, configOverride).catch(() => {});
 
     return reply.send({ success: true });
   });

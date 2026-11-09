@@ -153,6 +153,7 @@ export function buildStreamUrls(
 ): string[] {
   let cleaned = configInput.trim();
   cleaned = cleaned.replace(/^AIOSTREAMS_USER_CONFIG\s*=\s*/i, '');
+  const stremioType = type === 'tv' || type === 'series' ? 'series' : 'movie';
   const urls: string[] = [];
 
   // If full URL e.g. http://domain:3001/stremio/uuid/password/manifest.json or stremio://...
@@ -162,8 +163,8 @@ export function buildStreamUrls(
       let path = parsed.pathname.replace(/\/manifest\.json$/i, '').replace(/\/$/, '');
       if (!path.startsWith('/')) path = '/' + path;
 
-      urls.push(`${internalBaseUrl}${path}/stream/${type}/${id}.json`);
-      urls.push(`${internalBaseUrl}${path}/${type}/${id}.json`);
+      urls.push(`${internalBaseUrl}${path}/stream/${stremioType}/${id}.json`);
+      urls.push(`${internalBaseUrl}${path}/${stremioType}/${id}.json`);
       return urls;
     } catch (_) {}
   }
@@ -172,13 +173,13 @@ export function buildStreamUrls(
   const cleanPath = cleaned.replace(/\/manifest\.json$/i, '').replace(/^\/+/, '').replace(/\/+$/, '');
 
   if (cleanPath.startsWith('stremio/')) {
-    urls.push(`${internalBaseUrl}/${cleanPath}/stream/${type}/${id}.json`);
-    urls.push(`${internalBaseUrl}/${cleanPath}/${type}/${id}.json`);
+    urls.push(`${internalBaseUrl}/${cleanPath}/stream/${stremioType}/${id}.json`);
+    urls.push(`${internalBaseUrl}/${cleanPath}/${stremioType}/${id}.json`);
   } else {
     // AIOStreams v2 authenticated routes
-    urls.push(`${internalBaseUrl}/stremio/${cleanPath}/stream/${type}/${id}.json`);
-    urls.push(`${internalBaseUrl}/stremio/${cleanPath}/${type}/${id}.json`);
-    urls.push(`${internalBaseUrl}/${cleanPath}/stream/${type}/${id}.json`);
+    urls.push(`${internalBaseUrl}/stremio/${cleanPath}/stream/${stremioType}/${id}.json`);
+    urls.push(`${internalBaseUrl}/stremio/${cleanPath}/${stremioType}/${id}.json`);
+    urls.push(`${internalBaseUrl}/${cleanPath}/stream/${stremioType}/${id}.json`);
   }
 
   return urls;
@@ -197,7 +198,7 @@ class AioStreamsService {
   private prefetchCache = new Map<string, { streams: ResolvedStream[]; expiresAt: number }>();
 
   public async fetchRawStreams(
-    type: 'movie' | 'tv',
+    type: 'movie' | 'tv' | 'series',
     id: string,
     configOverride?: string | null
   ): Promise<AioRawStream[]> {
@@ -262,11 +263,12 @@ class AioStreamsService {
   }
 
   public async resolveStreams(
-    type: 'movie' | 'tv',
+    type: 'movie' | 'tv' | 'series',
     id: string,
     configOverride?: string | null
   ): Promise<ResolvedStream[]> {
-    const cacheKey = `${type}:${id}:${configOverride || ''}`;
+    const stremioType = type === 'tv' || type === 'series' ? 'series' : 'movie';
+    const cacheKey = `${stremioType}:${id}:${configOverride || ''}`;
     const cached = this.prefetchCache.get(cacheKey);
     const now = Date.now();
 
@@ -274,7 +276,7 @@ class AioStreamsService {
       return cached.streams;
     }
 
-    const rawStreams = await this.fetchRawStreams(type, id, configOverride);
+    const rawStreams = await this.fetchRawStreams(stremioType, id, configOverride);
     const results: ResolvedStream[] = [];
 
     let counter = 0;
@@ -322,7 +324,7 @@ class AioStreamsService {
     return results;
   }
 
-  public async prefetchStreams(type: 'movie' | 'tv', id: string, configOverride?: string | null): Promise<void> {
+  public async prefetchStreams(type: 'movie' | 'tv' | 'series', id: string, configOverride?: string | null): Promise<void> {
     await this.resolveStreams(type, id, configOverride);
   }
 

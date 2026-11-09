@@ -58,7 +58,7 @@ export async function catalogRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     const tmdbId = parseInt(id, 10);
     const seasonNumber = parseInt(season, 10);
 
-    const actualImdbId = imdbId || (await tmdb.getImdbId('tv', tmdbId));
+    const actualImdbId = imdbId && imdbId.startsWith('tt') ? imdbId : await tmdb.getImdbId('tv', tmdbId);
     const episodes = await tmdb.getSeasonEpisodes(tmdbId, seasonNumber, actualImdbId);
 
     return reply.send({

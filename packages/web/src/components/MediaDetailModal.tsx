@@ -36,6 +36,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const [loadingStreams, setLoadingStreams] = useState(true);
 
   // TV Series Season & Episode State
+  const [currentImdbId, setCurrentImdbId] = useState<string>(item.imdbId);
   const [seasons, setSeasons] = useState<number[]>([1]);
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [episodes, setEpisodes] = useState<TvSeasonEpisode[]>([]);
@@ -53,12 +54,13 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
   // Load streams & initial TV details
   useEffect(() => {
-    loadStreams(selectedSeason, selectedEpisode?.episodeNumber || 1);
-    checkMyList();
-
+    setCurrentImdbId(item.imdbId);
     if (item.type === 'tv') {
       fetchSeriesInfo();
+    } else {
+      loadStreams(0, 0, item.imdbId);
     }
+    checkMyList();
   }, [item]);
 
   useEffect(() => {
@@ -72,38 +74,52 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       const res = await fetch(`/api/catalog/series/${item.tmdbId}`);
       if (res.ok) {
         const data = await res.json();
+        const resolvedImdb = data?.external_ids?.imdb_id;
+        if (resolvedImdb && resolvedImdb.startsWith('tt')) {
+          setCurrentImdbId(resolvedImdb);
+        }
         const validSeasons = (data.seasons || [])
           .filter((s: any) => s.season_number > 0)
           .map((s: any) => s.season_number);
         if (validSeasons.length > 0) {
           setSeasons(validSeasons);
-          setSelectedSeason(validSeasons[0]);
+          if (!validSeasons.includes(selectedSeason)) {
+            setSelectedSeason(validSeasons[0]);
+          } else {
+            fetchSeasonEpisodes(selectedSeason, resolvedImdb || currentImdbId);
+          }
         }
       }
     } catch (_) {}
   };
 
-  const fetchSeasonEpisodes = async (seasonNum: number) => {
+  const fetchSeasonEpisodes = async (seasonNum: number, overrideImdbId?: string) => {
     try {
+      const targetImdb = overrideImdbId || currentImdbId || item.imdbId;
       const res = await fetch(
-        `/api/catalog/series/${item.tmdbId}/season/${seasonNum}?imdbId=${item.imdbId}`
+        `/api/catalog/series/${item.tmdbId}/season/${seasonNum}?imdbId=${encodeURIComponent(targetImdb)}`
       );
       if (res.ok) {
         const data = await res.json();
+        const resolvedImdb = data.imdbId && data.imdbId.startsWith('tt') ? data.imdbId : targetImdb;
+        if (resolvedImdb && resolvedImdb.startsWith('tt')) {
+          setCurrentImdbId(resolvedImdb);
+        }
         setEpisodes(data.episodes || []);
         if (data.episodes && data.episodes.length > 0) {
           const first = data.episodes[0];
           setSelectedEpisode(first);
-          loadStreams(seasonNum, first.episodeNumber);
+          loadStreams(seasonNum, first.episodeNumber, resolvedImdb);
         }
       }
     } catch (_) {}
   };
 
-  const loadStreams = async (seasonNum: number, episodeNum: number) => {
+  const loadStreams = async (seasonNum: number, episodeNum: number, overrideImdbId?: string) => {
     setLoadingStreams(true);
     try {
-      let url = `/api/streams/${item.type}/${item.imdbId}`;
+      const targetImdb = overrideImdbId || currentImdbId || item.imdbId;
+      let url = `/api/streams/${item.type}/${encodeURIComponent(targetImdb)}`;
       if (item.type === 'tv') {
         url += `?season=${seasonNum}&episode=${episodeNum}`;
       }
@@ -161,6 +177,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
   const handleNasCache = async (scope: 'movie' | 'episode' | 'remaining_season' | 'season' | 'all_seasons') => {
     setIsNasMenuOpen(false);
+    const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
     try {
       const res = await fetch('/api/nas/cache', {
         method: 'POST',
@@ -169,7 +186,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           'X-Profile-Id': activeProfile?.id || '',
         },
         body: JSON.stringify({
-          imdbId: item.imdbId,
+          imdbId: targetImdb,
           tmdbId: item.tmdbId,
           mediaType: item.type,
           scope,
@@ -191,13 +208,14 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const handleDeviceDownload = async () => {
     if (streams.length === 0) return;
     const bestStream = streams[0];
+    const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
     const season = item.type === 'tv' ? selectedSeason : 0;
     const episode = item.type === 'tv' ? selectedEpisode?.episodeNumber || 1 : 0;
-    const downloadId = `${item.imdbId}_${season}_${episode}`;
+    const downloadId = `${targetImdb}_${season}_${episode}`;
 
     const downloadedItem = await offlineDownloader.startDownload({
       downloadId,
-      imdbId: item.imdbId,
+      imdbId: targetImdb,
       tmdbId: item.tmdbId,
       mediaType: item.type,
       season,
@@ -458,7 +476,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                       key={ep.episodeNumber}
                       onClick={() => {
                         setSelectedEpisode(ep);
-                        loadStreams(selectedSeason, ep.episodeNumber);
+                        loadStreams(selectedSeason, ep.episodeNumber, currentImdbId);
                       }}
                       className={`flex gap-3 p-2.5 rounded-lg border cursor-pointer transition-all ${
                         isSelected
