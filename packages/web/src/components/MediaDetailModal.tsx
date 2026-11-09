@@ -15,8 +15,9 @@ import {
   CheckCheck,
   Eye,
   EyeOff,
+  Radar,
 } from 'lucide-react';
-import { CatalogItem, ResolvedStream, TvSeasonEpisode, NasCacheItem } from '../types/api';
+import { CatalogItem, ResolvedStream, TvSeasonEpisode, NasCacheItem, ArrPushResult } from '../types/api';
 import { useProfileStore } from '../store/useProfileStore';
 import { offlineDownloader } from '../bridge/offlineDownloader';
 import { useOfflineStore } from '../store/useOfflineStore';
@@ -57,6 +58,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const [isNasMenuOpen, setIsNasMenuOpen] = useState(false);
   const [nasSuccessMessage, setNasSuccessMessage] = useState<string | null>(null);
   const [nasJobs, setNasJobs] = useState<NasCacheItem[]>([]);
+  const [pushingArrStreamId, setPushingArrStreamId] = useState<string | null>(null);
 
   // Watch Progress State (Keyed by `${season}:${episode}`)
   const [watchedEpisodes, setWatchedEpisodes] = useState<
@@ -875,6 +877,49 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     return parts.join(' • ') || stream.title.replace(/\n/g, ' ');
   };
 
+  const handleArrPush = async (targetStream: ResolvedStream) => {
+    setPushingArrStreamId(targetStream.id);
+    const serviceName = item.type === 'tv' ? 'Sonarr' : 'Radarr';
+    const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
+
+    setNasSuccessMessage(`Searching ${serviceName} indexers for release within ±10% size (${targetStream.badges.sizeText || 'target'})...`);
+
+    try {
+      const res = await fetch('/api/arr/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Profile-Id': activeProfile?.id || '',
+        },
+        body: JSON.stringify({
+          mediaType: item.type,
+          tmdbId: item.tmdbId,
+          imdbId: targetImdb,
+          title: item.title,
+          year: item.releaseDate ? item.releaseDate.split('-')[0] : undefined,
+          seasonNumber: item.type === 'tv' ? selectedSeason : undefined,
+          episodeNumber: item.type === 'tv' ? (selectedEpisode?.episodeNumber || 1) : undefined,
+          targetSizeBytes: targetStream.badges.sizeBytes || 0,
+          targetBadges: targetStream.badges,
+        }),
+      });
+
+      const data: ArrPushResult = await res.json();
+      if (data.success) {
+        setNasSuccessMessage(`🎯 ${data.message}`);
+        setTimeout(() => setNasSuccessMessage(null), 8000);
+      } else {
+        setNasSuccessMessage(`⚠️ ${data.message || data.error}`);
+        setTimeout(() => setNasSuccessMessage(null), 8000);
+      }
+    } catch (err: any) {
+      setNasSuccessMessage(`⚠️ Failed to push to ${serviceName}: ${err.message}`);
+      setTimeout(() => setNasSuccessMessage(null), 8000);
+    } finally {
+      setPushingArrStreamId(null);
+    }
+  };
+
   const availableProviders = Array.from(new Set(streams.map((s) => s.badges.source || 'Debrid')));
   const filteredStreams = providerFilter === 'all'
     ? streams
@@ -1176,6 +1221,23 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 )}
               </div>
             </button>
+
+            {/* Push Best Stream to Radarr / Sonarr */}
+            {bestStream && (
+              <button
+                onClick={() => handleArrPush(bestStream)}
+                disabled={pushingArrStreamId === bestStream.id}
+                className="flex items-center gap-2 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 px-3.5 py-2.5 rounded font-medium text-sm transition-all disabled:opacity-50"
+                title={`Search ${item.type === 'tv' ? 'Sonarr' : 'Radarr'} indexers for equivalent release (±10% of ${bestStream.badges.sizeText || 'target'})`}
+              >
+                {pushingArrStreamId === bestStream.id ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
+                ) : (
+                  <Radar className="w-4 h-4 text-cyan-400" />
+                )}
+                <span>Push to {item.type === 'tv' ? 'Sonarr' : 'Radarr'} (±10% Size)</span>
+              </button>
+            )}
 
             {/* My List */}
             <button
@@ -1591,7 +1653,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           handleNasCacheSpecificStream(stream);
                         }}
                         className="bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white p-2 rounded-full transition-colors border border-amber-500/30"
-                        title={`Cache this ${stream.badges.resolution} (${stream.badges.source}${stream.badges.sizeText ? ` • ${stream.badges.sizeText}` : ''}) stream to NAS`}
+                        title={`Cache this ${stream.badges.resolution} (${stream.badges.source}${stream.badges.sizeText ? ` • ${stream.badges.sizeText}` : ''}) directly to NAS`}
                       >
                         <Zap className="w-3.5 h-3.5 fill-current" />
                       </button>
@@ -1603,6 +1665,23 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                         <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
                       </span>
                     )}
+
+                    {/* Push equivalent release (±10% size) to Radarr / Sonarr */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleArrPush(stream);
+                      }}
+                      disabled={pushingArrStreamId === stream.id}
+                      className="bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white p-2 rounded-full transition-colors border border-cyan-500/30 disabled:opacity-50"
+                      title={`Search ${item.type === 'tv' ? 'Sonarr' : 'Radarr'} indexers for equivalent release within ±10% size (${stream.badges.sizeText || 'matching'}) and push to queue`}
+                    >
+                      {pushingArrStreamId === stream.id ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Radar className="w-3.5 h-3.5" />
+                      )}
+                    </button>
 
                     {/* Download this specific stream */}
                     <button

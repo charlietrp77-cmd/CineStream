@@ -177,3 +177,50 @@ export interface ProviderQuota {
   expiresAt?: string;
 }
 
+export interface ArrStatus {
+  radarr: {
+    configured: boolean;
+    online: boolean;
+    url: string;
+    version?: string;
+    error?: string;
+  };
+  sonarr: {
+    configured: boolean;
+    online: boolean;
+    url: string;
+    version?: string;
+    error?: string;
+  };
+}
+
+export interface MatchedArrRelease {
+  guid: string;
+  indexerId: number;
+  indexer: string;
+  title: string;
+  sizeBytes: number;
+  sizeText: string;
+  targetSizeBytes: number;
+  sizeDiffBytes: number;
+  sizeDiffPercent: number;
+  isWithin10Percent: boolean;
+  resolution?: string;
+  qualityName?: string;
+  rejected: boolean;
+  rejections?: string[];
+  seeders?: number;
+  score: number;
+}
+
+export interface ArrPushResult {
+  success: boolean;
+  service: 'radarr' | 'sonarr';
+  matchedRelease: MatchedArrRelease | null;
+  message: string;
+  isWithin10Percent: boolean;
+  allCandidatesCount: number;
+  error?: string;
+}
+
+

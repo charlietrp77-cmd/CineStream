@@ -27,6 +27,10 @@ export interface AppConfig {
   easynewsPassword: string;
   realdebridApiKey: string;
   alldebridApiKey: string;
+  radarrUrl: string;
+  radarrApiKey: string;
+  sonarrUrl: string;
+  sonarrApiKey: string;
 }
 
 export const config: AppConfig = {
@@ -51,5 +55,9 @@ export const config: AppConfig = {
   easynewsPassword: process.env.EASYNEWS_PASSWORD || '',
   realdebridApiKey: process.env.REALDEBRID_API_KEY || process.env.RD_API_KEY || '',
   alldebridApiKey: process.env.ALLDEBRID_API_KEY || '',
+  radarrUrl: (process.env.RADARR_URL || '').replace(/\/$/, ''),
+  radarrApiKey: process.env.RADARR_API_KEY || '',
+  sonarrUrl: (process.env.SONARR_URL || '').replace(/\/$/, ''),
+  sonarrApiKey: process.env.SONARR_API_KEY || '',
 };
 

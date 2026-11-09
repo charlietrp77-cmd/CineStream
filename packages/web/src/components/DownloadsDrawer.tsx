@@ -17,8 +17,10 @@ import {
   ShieldCheck,
   Server,
   Box,
+  Radar,
+  Settings,
 } from 'lucide-react';
-import { DiskSpaceInfo, NasCacheItem, OfflineMediaItem, ProviderQuota, ResolvedStream } from '../types/api';
+import { DiskSpaceInfo, NasCacheItem, OfflineMediaItem, ProviderQuota, ResolvedStream, ArrStatus } from '../types/api';
 import { useOfflineStore } from '../store/useOfflineStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { offlineDownloader } from '../bridge/offlineDownloader';
@@ -40,17 +42,28 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
   const [diskSpace, setDiskSpace] = useState<DiskSpaceInfo | null>(null);
   const [nasJobs, setNasJobs] = useState<NasCacheItem[]>([]);
   const [providerQuotas, setProviderQuotas] = useState<ProviderQuota[]>([]);
+  const [arrStatus, setArrStatus] = useState<ArrStatus | null>(null);
+  const [showArrSettings, setShowArrSettings] = useState(false);
+  const [arrSettingsForm, setArrSettingsForm] = useState({
+    radarr_url: '',
+    radarr_api_key: '',
+    sonarr_url: '',
+    sonarr_api_key: '',
+  });
+  const [arrSaving, setArrSaving] = useState(false);
+  const [arrSaveMessage, setArrSaveMessage] = useState<string | null>(null);
 
   const { activeProfile } = useProfileStore();
   const { offlineItems, removeItem: removeOfflineItem, saveItem } = useOfflineStore();
 
-  // Load disk space, provider quotas & setup WebSocket
+  // Load disk space, provider quotas, arr status & setup WebSocket
   useEffect(() => {
     if (!isOpen) return;
 
     fetchDiskSpace();
     fetchNasJobs();
     fetchProviderQuotas();
+    fetchArrStatus();
 
     // Setup live WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -86,6 +99,46 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
         setProviderQuotas(data);
       }
     } catch (_) {}
+  };
+
+  const fetchArrStatus = async () => {
+    try {
+      const res = await fetch('/api/arr/status');
+      if (res.ok) {
+        setArrStatus(await res.json());
+      }
+      const sRes = await fetch('/api/arr/settings');
+      if (sRes.ok) {
+        setArrSettingsForm(await sRes.json());
+      }
+    } catch (_) {}
+  };
+
+  const handleSaveArrSettings = async () => {
+    setArrSaving(true);
+    setArrSaveMessage(null);
+    try {
+      const res = await fetch('/api/arr/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(arrSettingsForm),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setArrStatus(data.status);
+        setArrSaveMessage('Settings saved & verified!');
+        setTimeout(() => {
+          setArrSaveMessage(null);
+          setShowArrSettings(false);
+        }, 2000);
+      } else {
+        setArrSaveMessage('Failed to save settings.');
+      }
+    } catch (err: any) {
+      setArrSaveMessage(`Error: ${err.message}`);
+    } finally {
+      setArrSaving(false);
+    }
   };
 
   const fetchDiskSpace = async () => {
@@ -299,6 +352,146 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* Radarr & Sonarr Integration Status & Settings */}
+              <div className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                    <Radar className="w-3.5 h-3.5 text-cyan-400" />
+                    Radarr & Sonarr Indexer Search (±10% Size Match)
+                  </span>
+                  <button
+                    onClick={() => setShowArrSettings(!showArrSettings)}
+                    className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-colors"
+                  >
+                    <Settings className="w-3 h-3" />
+                    <span>{showArrSettings ? 'Close' : 'Configure'}</span>
+                  </button>
+                </div>
+
+                {/* Status Badges */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-2.5 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-gray-200">Radarr (Movies)</span>
+                      <p className="text-[10px] text-gray-400 truncate max-w-[140px]">
+                        {arrStatus?.radarr.url || 'Not set'}
+                      </p>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        arrStatus?.radarr.online
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : arrStatus?.radarr.configured
+                          ? 'bg-red-500/20 text-red-400'
+                          : 'bg-white/10 text-gray-400'
+                      }`}
+                    >
+                      {arrStatus?.radarr.online ? 'Online' : arrStatus?.radarr.configured ? 'Offline' : 'Not Set'}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-gray-200">Sonarr (Series)</span>
+                      <p className="text-[10px] text-gray-400 truncate max-w-[140px]">
+                        {arrStatus?.sonarr.url || 'Not set'}
+                      </p>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        arrStatus?.sonarr.online
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : arrStatus?.sonarr.configured
+                          ? 'bg-red-500/20 text-red-400'
+                          : 'bg-white/10 text-gray-400'
+                      }`}
+                    >
+                      {arrStatus?.sonarr.online ? 'Online' : arrStatus?.sonarr.configured ? 'Offline' : 'Not Set'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Inline Settings Form */}
+                {showArrSettings && (
+                  <div className="p-3 bg-black/60 rounded-lg border border-white/10 space-y-3 text-xs mt-2">
+                    <p className="text-[11px] text-gray-300">
+                      Configure your Radarr and Sonarr URLs and API keys so CineStream can search indexers and push matching releases directly to your download queue.
+                    </p>
+
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-semibold text-gray-400 uppercase">Radarr URL</label>
+                          <input
+                            type="text"
+                            placeholder="http://192.168.1.50:7878"
+                            value={arrSettingsForm.radarr_url}
+                            onChange={(e) => setArrSettingsForm({ ...arrSettingsForm, radarr_url: e.target.value })}
+                            className="w-full mt-1 bg-[#141414] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-gray-400 uppercase">Radarr API Key</label>
+                          <input
+                            type="password"
+                            placeholder="API Key"
+                            value={arrSettingsForm.radarr_api_key}
+                            onChange={(e) => setArrSettingsForm({ ...arrSettingsForm, radarr_api_key: e.target.value })}
+                            className="w-full mt-1 bg-[#141414] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-semibold text-gray-400 uppercase">Sonarr URL</label>
+                          <input
+                            type="text"
+                            placeholder="http://192.168.1.50:8989"
+                            value={arrSettingsForm.sonarr_url}
+                            onChange={(e) => setArrSettingsForm({ ...arrSettingsForm, sonarr_url: e.target.value })}
+                            className="w-full mt-1 bg-[#141414] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-gray-400 uppercase">Sonarr API Key</label>
+                          <input
+                            type="password"
+                            placeholder="API Key"
+                            value={arrSettingsForm.sonarr_api_key}
+                            onChange={(e) => setArrSettingsForm({ ...arrSettingsForm, sonarr_api_key: e.target.value })}
+                            className="w-full mt-1 bg-[#141414] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      {arrSaveMessage && (
+                        <span className={`text-[11px] ${arrSaveMessage.includes('saved') ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {arrSaveMessage}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-2 ml-auto">
+                        <button
+                          onClick={() => setShowArrSettings(false)}
+                          className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSaveArrSettings}
+                          disabled={arrSaving}
+                          className="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-semibold disabled:opacity-50"
+                        >
+                          {arrSaving ? 'Testing...' : 'Save & Verify'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Jobs List */}
               <div className="space-y-3">

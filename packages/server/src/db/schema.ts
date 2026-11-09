@@ -177,6 +177,12 @@ CREATE TABLE IF NOT EXISTS tmdb_cache (
   expires_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_watch_progress_profile ON watch_progress(profile_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_my_list_profile ON my_list(profile_id, added_at DESC);
 CREATE INDEX IF NOT EXISTS idx_nas_cache_status ON nas_cache_items(status);
