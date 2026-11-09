@@ -108,26 +108,6 @@ services:
     networks:
       - cinestream_net
 
-  qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
-    container_name: cinestream-qbittorrent
-    restart: unless-stopped
-    ports:
-      - "${QBITTORRENT_PORT:-8085}:8080"
-      - "${QBITTORRENT_PEER_PORT:-6881}:6881"
-      - "${QBITTORRENT_PEER_PORT:-6881}:6881/udp"
-    environment:
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - TZ=${TZ:-Etc/UTC}
-      - WEBUI_PORT=8080
-      - TORRENTING_PORT=6881
-    volumes:
-      - qbittorrent_config:/config
-      - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
-    networks:
-      - cinestream_net
-
   sabnzbd:
     image: lscr.io/linuxserver/sabnzbd:latest
     container_name: cinestream-sabnzbd
@@ -156,8 +136,6 @@ volumes:
   sonarr_config:
     driver: local
   prowlarr_config:
-    driver: local
-  qbittorrent_config:
     driver: local
   sabnzbd_config:
     driver: local
