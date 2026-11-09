@@ -212,13 +212,15 @@ export const App: React.FC = () => {
 
     return (
       <div className="min-h-screen bg-[#0a0a0a] text-white">
-        <Navbar
-          onOpenSearch={() => setIsSearchOpen(true)}
-          onOpenDownloads={() => setIsDownloadsOpen(true)}
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
-          activeDownloadsCount={activeDownloadsCount}
-        />
+        {!playerState && (
+          <Navbar
+            onOpenSearch={() => setIsSearchOpen(true)}
+            onOpenDownloads={() => setIsDownloadsOpen(true)}
+            activeTab={activeTab}
+            onSelectTab={setActiveTab}
+            activeDownloadsCount={activeDownloadsCount}
+          />
+        )}
 
         <main className="pt-24 px-4 sm:px-12 space-y-8">
           <div className="bg-amber-500/10 border border-amber-500/30 p-6 rounded-2xl flex items-center justify-between">
@@ -291,13 +293,15 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white overflow-x-hidden pb-20">
       {/* Top Navbar */}
-      <Navbar
-        onOpenSearch={() => setIsSearchOpen(true)}
-        onOpenDownloads={() => setIsDownloadsOpen(true)}
-        activeTab={activeTab}
-        onSelectTab={setActiveTab}
-        activeDownloadsCount={activeDownloadsCount}
-      />
+      {!playerState && (
+        <Navbar
+          onOpenSearch={() => setIsSearchOpen(true)}
+          onOpenDownloads={() => setIsDownloadsOpen(true)}
+          activeTab={activeTab}
+          onSelectTab={setActiveTab}
+          activeDownloadsCount={activeDownloadsCount}
+        />
+      )}
 
       {/* Main Content */}
       <main>

@@ -42,6 +42,11 @@ html.video-playing #root {
   background-color: transparent !important;
 }
 
+html.video-playing nav,
+html.video-playing header {
+  display: none !important;
+}
+
 .gpu-layer {
   will-change: transform, opacity;
   transform: translateZ(0);
