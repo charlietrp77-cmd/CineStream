@@ -2,24 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, #root {
+html {
   margin: 0;
   padding: 0;
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
   background-color: #0a0a0a;
-  overscroll-behavior: none;
+  overscroll-behavior-y: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
 
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: #0a0a0a;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
 /* Option B Transparent WebView Sandwich Mode */
 html.video-playing,
 html.video-playing body,
 html.video-playing #root {
+  overflow: hidden !important;
   background: transparent !important;
   background-color: transparent !important;
 }

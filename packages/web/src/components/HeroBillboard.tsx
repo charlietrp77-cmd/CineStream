@@ -14,7 +14,7 @@ export const HeroBillboard: React.FC<HeroBillboardProps> = ({ item, onPlay, onMo
   }
 
   return (
-    <div className="relative h-[65vh] sm:h-[82vh] w-full select-none overflow-hidden">
+    <div className="relative h-[60vh] sm:h-[72vh] lg:h-[76vh] w-full select-none overflow-hidden">
       {/* 4K Backdrop Image */}
       {item.backdropUrl && (
         <img
