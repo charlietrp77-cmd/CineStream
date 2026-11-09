@@ -26,3 +26,4 @@ export async function backupRoutes(fastify: FastifyInstance): Promise<void> {
     }
   });
 }
+
