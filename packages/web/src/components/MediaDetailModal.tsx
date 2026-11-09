@@ -10,8 +10,10 @@ import {
   Sparkles,
   ChevronDown,
   Layers,
+  RefreshCw,
+  Clock,
 } from 'lucide-react';
-import { CatalogItem, ResolvedStream, TvSeasonEpisode } from '../types/api';
+import { CatalogItem, ResolvedStream, TvSeasonEpisode, NasCacheItem } from '../types/api';
 import { useProfileStore } from '../store/useProfileStore';
 import { offlineDownloader } from '../bridge/offlineDownloader';
 import { useOfflineStore } from '../store/useOfflineStore';
@@ -48,9 +50,10 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   // Provider Filter State
   const [providerFilter, setProviderFilter] = useState<string>('all');
 
-  // NAS Cache Dropdown
+  // NAS Cache Dropdown & State
   const [isNasMenuOpen, setIsNasMenuOpen] = useState(false);
   const [nasSuccessMessage, setNasSuccessMessage] = useState<string | null>(null);
+  const [nasJobs, setNasJobs] = useState<NasCacheItem[]>([]);
 
   // Load streams & initial TV details
   useEffect(() => {
@@ -68,6 +71,46 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       fetchSeasonEpisodes(selectedSeason);
     }
   }, [selectedSeason]);
+
+  // Sync NAS jobs and WebSocket updates
+  useEffect(() => {
+    fetchNasJobs();
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/downloads`;
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.jobs) {
+            const relevant = (data.jobs as NasCacheItem[]).filter(
+              (j) => j.imdb_id === currentImdbId || j.imdb_id === item.imdbId
+            );
+            setNasJobs(relevant);
+          }
+        } catch (_) {}
+      };
+    } catch (_) {}
+
+    return () => {
+      if (ws) ws.close();
+    };
+  }, [currentImdbId, item.imdbId]);
+
+  const fetchNasJobs = async () => {
+    try {
+      const res = await fetch('/api/nas/jobs');
+      if (res.ok) {
+        const all: NasCacheItem[] = await res.json();
+        const relevant = all.filter(
+          (j) => j.imdb_id === currentImdbId || j.imdb_id === item.imdbId
+        );
+        setNasJobs(relevant);
+      }
+    } catch (_) {}
+  };
 
   const fetchSeriesInfo = async () => {
     try {
@@ -185,6 +228,98 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     const seasonNumber = overrideSeason !== undefined ? overrideSeason : selectedSeason;
     const episodeNumber = overrideEpisode !== undefined ? overrideEpisode : selectedEpisode?.episodeNumber || 1;
 
+    // Optimistic UI updates
+    if (scope === 'episode') {
+      setNasJobs((prev) => [
+        ...prev.filter((j) => !(j.season === seasonNumber && j.episode === episodeNumber)),
+        {
+          id: `${targetImdb}:${seasonNumber}:${episodeNumber}`,
+          imdb_id: targetImdb,
+          tmdb_id: item.tmdbId,
+          media_type: item.type,
+          title: item.title,
+          episode_title: selectedEpisode?.title || null,
+          season: seasonNumber,
+          episode: episodeNumber,
+          poster_url: item.posterUrl,
+          backdrop_url: item.backdropUrl,
+          source_url: '',
+          source_headers_json: '{}',
+          binge_group: null,
+          quality_badge: null,
+          file_path: '',
+          file_size_bytes: 0,
+          downloaded_bytes: 0,
+          speed_bytes_per_sec: 0,
+          status: 'queued',
+          error_message: null,
+          requested_by_profile_id: activeProfile?.id || null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+      ]);
+    } else if (scope === 'movie') {
+      setNasJobs((prev) => [
+        ...prev.filter((j) => j.imdb_id !== targetImdb),
+        {
+          id: `${targetImdb}:0:0`,
+          imdb_id: targetImdb,
+          tmdb_id: item.tmdbId,
+          media_type: 'movie',
+          title: item.title,
+          episode_title: null,
+          season: 0,
+          episode: 0,
+          poster_url: item.posterUrl,
+          backdrop_url: item.backdropUrl,
+          source_url: '',
+          source_headers_json: '{}',
+          binge_group: null,
+          quality_badge: null,
+          file_path: '',
+          file_size_bytes: 0,
+          downloaded_bytes: 0,
+          speed_bytes_per_sec: 0,
+          status: 'queued',
+          error_message: null,
+          requested_by_profile_id: activeProfile?.id || null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+      ]);
+    } else if (scope === 'season' || scope === 'remaining_season') {
+      const epsToQueue = episodes.filter((ep) => scope !== 'remaining_season' || ep.episodeNumber >= episodeNumber);
+      const newJobs: NasCacheItem[] = epsToQueue.map((ep) => ({
+        id: `${targetImdb}:${seasonNumber}:${ep.episodeNumber}`,
+        imdb_id: targetImdb,
+        tmdb_id: item.tmdbId,
+        media_type: 'tv',
+        title: item.title,
+        episode_title: ep.title,
+        season: seasonNumber,
+        episode: ep.episodeNumber,
+        poster_url: item.posterUrl,
+        backdrop_url: item.backdropUrl,
+        source_url: '',
+        source_headers_json: '{}',
+        binge_group: null,
+        quality_badge: null,
+        file_path: '',
+        file_size_bytes: 0,
+        downloaded_bytes: 0,
+        speed_bytes_per_sec: 0,
+        status: 'queued',
+        error_message: null,
+        requested_by_profile_id: activeProfile?.id || null,
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      }));
+      setNasJobs((prev) => [
+        ...prev.filter((j) => j.season !== seasonNumber || !epsToQueue.some((e) => e.episodeNumber === j.episode)),
+        ...newJobs,
+      ]);
+    }
+
     try {
       const res = await fetch('/api/nas/cache', {
         method: 'POST',
@@ -214,11 +349,36 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             : `${data.queuedCount} item(s)`;
         setNasSuccessMessage(`Queued ${label} for NAS caching!`);
         setTimeout(() => setNasSuccessMessage(null), 4000);
+        fetchNasJobs();
       }
     } catch (e) {
       console.error('Failed to queue NAS caching:', e);
     }
   };
+
+  const getNasJob = (seasonNum: number, episodeNum: number) => {
+    return nasJobs.find((j) => j.season === seasonNum && j.episode === episodeNum);
+  };
+
+  const movieNasJob = item.type === 'movie' ? (nasJobs.find((j) => j.media_type === 'movie') || getNasJob(0, 0)) : null;
+  const currentEpNum = selectedEpisode?.episodeNumber || 1;
+  const currentEpNasJob = item.type === 'tv' ? getNasJob(selectedSeason, currentEpNum) : null;
+
+  const seasonJobs = nasJobs.filter((j) => j.season === selectedSeason);
+  const seasonCompletedCount = seasonJobs.filter((j) => j.status === 'completed').length;
+  const seasonDownloadingCount = seasonJobs.filter((j) => j.status === 'downloading').length;
+  const seasonQueuedCount = seasonJobs.filter((j) => j.status === 'queued').length;
+  const isEntireSeasonCached = episodes.length > 0 && seasonCompletedCount >= episodes.length;
+  const isSeasonCaching = seasonDownloadingCount > 0 || seasonQueuedCount > 0;
+
+  const anyCompleted = nasJobs.some((j) => j.status === 'completed') || item.isNasCached;
+  const anyDownloading = nasJobs.some((j) => j.status === 'downloading');
+  const anyQueued = nasJobs.some((j) => j.status === 'queued');
+
+  const activeDownloadingJob = nasJobs.find((j) => j.status === 'downloading');
+  const activePercent = activeDownloadingJob && activeDownloadingJob.file_size_bytes > 0
+    ? Math.min(100, Math.round((activeDownloadingJob.downloaded_bytes / activeDownloadingJob.file_size_bytes) * 100))
+    : 0;
 
   const handleDeviceDownload = async () => {
     if (streams.length === 0) return;
@@ -447,10 +607,20 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
             {/* Badges */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              {item.isNasCached ? (
+              {anyCompleted ? (
                 <span className="flex items-center gap-1 bg-amber-500/30 text-amber-300 border border-amber-500/50 px-2 py-0.5 rounded font-bold">
                   <Zap className="w-3.5 h-3.5 fill-amber-300" />
                   ⚡ Cached on NAS
+                </span>
+              ) : anyDownloading ? (
+                <span className="flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded font-bold animate-pulse">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  ⏳ Caching to NAS ({activePercent}%)
+                </span>
+              ) : anyQueued ? (
+                <span className="flex items-center gap-1.5 bg-blue-500/20 text-blue-300 border border-blue-500/40 px-2 py-0.5 rounded font-bold">
+                  <Clock className="w-3.5 h-3.5 text-blue-400" />
+                  ⏳ Queued for NAS Caching
                 </span>
               ) : (
                 <span className="flex items-center gap-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-semibold">
@@ -499,32 +669,104 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
             {/* Cache to NAS Button & Dropdown */}
             {item.type === 'movie' ? (
-              <button
-                onClick={() => handleNasCache('movie')}
-                className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded font-semibold text-sm transition-all shadow"
-              >
-                <Zap className="w-4 h-4 fill-white" />
-                <span>Cache to NAS</span>
-              </button>
+              movieNasJob?.status === 'completed' || item.isNasCached ? (
+                <button
+                  disabled
+                  className="flex items-center gap-2 bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 px-5 py-2.5 rounded font-semibold text-sm cursor-default shadow"
+                >
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>⚡ Cached on NAS</span>
+                </button>
+              ) : movieNasJob?.status === 'downloading' ? (
+                <button
+                  disabled
+                  className="flex items-center gap-2 bg-amber-600/30 text-amber-300 border border-amber-500/40 px-5 py-2.5 rounded font-semibold text-sm animate-pulse cursor-default shadow"
+                >
+                  <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                  <span>Caching to NAS ({activePercent}%)</span>
+                </button>
+              ) : movieNasJob?.status === 'queued' ? (
+                <button
+                  disabled
+                  className="flex items-center gap-2 bg-blue-600/30 text-blue-300 border border-blue-500/40 px-5 py-2.5 rounded font-semibold text-sm cursor-default shadow"
+                >
+                  <Clock className="w-4 h-4 text-blue-400" />
+                  <span>Queued for Caching</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleNasCache('movie')}
+                  className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded font-semibold text-sm transition-all shadow"
+                >
+                  <Zap className="w-4 h-4 fill-white" />
+                  <span>Cache to NAS</span>
+                </button>
+              )
             ) : (
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => handleNasCache('episode')}
-                  className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white px-3.5 py-2.5 rounded font-semibold text-sm transition-all shadow"
-                  title="Cache currently selected episode to NAS"
-                >
-                  <Zap className="w-4 h-4 fill-white" />
-                  <span>Cache Ep {selectedEpisode?.episodeNumber || 1}</span>
-                </button>
+                {/* Episode Button */}
+                {currentEpNasJob?.status === 'completed' || selectedEpisode?.isNasCached ? (
+                  <button
+                    disabled
+                    className="flex items-center gap-1.5 bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 px-3.5 py-2.5 rounded font-semibold text-sm cursor-default shadow"
+                  >
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    <span>Ep {currentEpNum} Cached</span>
+                  </button>
+                ) : currentEpNasJob?.status === 'downloading' ? (
+                  <button
+                    disabled
+                    className="flex items-center gap-1.5 bg-amber-600/30 text-amber-300 border border-amber-500/40 px-3.5 py-2.5 rounded font-semibold text-sm animate-pulse cursor-default shadow"
+                  >
+                    <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                    <span>Caching Ep {currentEpNum} ({activePercent}%)</span>
+                  </button>
+                ) : currentEpNasJob?.status === 'queued' ? (
+                  <button
+                    disabled
+                    className="flex items-center gap-1.5 bg-blue-600/30 text-blue-300 border border-blue-500/40 px-3.5 py-2.5 rounded font-semibold text-sm cursor-default shadow"
+                  >
+                    <Clock className="w-4 h-4 text-blue-400" />
+                    <span>Ep {currentEpNum} Queued</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleNasCache('episode')}
+                    className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white px-3.5 py-2.5 rounded font-semibold text-sm transition-all shadow"
+                    title="Cache currently selected episode to NAS"
+                  >
+                    <Zap className="w-4 h-4 fill-white" />
+                    <span>Cache Ep {currentEpNum}</span>
+                  </button>
+                )}
 
-                <button
-                  onClick={() => handleNasCache('season')}
-                  className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-600 text-white px-3.5 py-2.5 rounded font-semibold text-sm transition-all shadow"
-                  title={`Cache all episodes of Season ${selectedSeason} to NAS`}
-                >
-                  <Zap className="w-4 h-4 fill-white" />
-                  <span>Cache Season {selectedSeason}</span>
-                </button>
+                {/* Season Button */}
+                {isEntireSeasonCached ? (
+                  <button
+                    disabled
+                    className="flex items-center gap-1.5 bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 px-3.5 py-2.5 rounded font-semibold text-sm cursor-default shadow"
+                  >
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    <span>Season {selectedSeason} Cached</span>
+                  </button>
+                ) : isSeasonCaching ? (
+                  <button
+                    disabled
+                    className="flex items-center gap-1.5 bg-amber-600/30 text-amber-300 border border-amber-500/40 px-3.5 py-2.5 rounded font-semibold text-sm animate-pulse cursor-default shadow"
+                  >
+                    <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                    <span>Caching S{selectedSeason} ({seasonCompletedCount}/{episodes.length || seasonJobs.length})</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleNasCache('season')}
+                    className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-600 text-white px-3.5 py-2.5 rounded font-semibold text-sm transition-all shadow"
+                    title={`Cache all episodes of Season ${selectedSeason} to NAS`}
+                  >
+                    <Zap className="w-4 h-4 fill-white" />
+                    <span>Cache Season {selectedSeason}</span>
+                  </button>
+                )}
 
                 <div className="relative">
                   <button
@@ -541,7 +783,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                         onClick={() => handleNasCache('episode')}
                         className="w-full text-left px-4 py-2 hover:bg-white/10"
                       >
-                        Cache Ep {selectedEpisode?.episodeNumber || 1}
+                        Cache Ep {currentEpNum}
                       </button>
                       <button
                         onClick={() => handleNasCache('remaining_season')}
@@ -617,17 +859,29 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 <h3 className="font-bold text-lg">Episodes</h3>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleNasCache('season', selectedSeason);
-                    }}
-                    className="flex items-center gap-1.5 bg-amber-600/30 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/40 px-3 py-1.5 rounded text-xs font-semibold transition-all shadow"
-                    title={`Cache entire Season ${selectedSeason} to NAS`}
-                  >
-                    <Zap className="w-3.5 h-3.5 fill-current" />
-                    <span>Cache Season {selectedSeason}</span>
-                  </button>
+                  {isEntireSeasonCached ? (
+                    <span className="flex items-center gap-1.5 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 px-3 py-1.5 rounded text-xs font-semibold shadow">
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Season {selectedSeason} Cached</span>
+                    </span>
+                  ) : isSeasonCaching ? (
+                    <span className="flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded text-xs font-semibold animate-pulse shadow">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                      <span>Caching Season {selectedSeason} ({seasonCompletedCount}/{episodes.length})</span>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleNasCache('season', selectedSeason);
+                      }}
+                      className="flex items-center gap-1.5 bg-amber-600/30 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/40 px-3 py-1.5 rounded text-xs font-semibold transition-all shadow"
+                      title={`Cache entire Season ${selectedSeason} to NAS`}
+                    >
+                      <Zap className="w-3.5 h-3.5 fill-current" />
+                      <span>Cache Season {selectedSeason}</span>
+                    </button>
+                  )}
 
                   {/* Season Dropdown */}
                   {seasons.length > 1 && (
@@ -650,6 +904,14 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-2">
                 {episodes.map((ep) => {
                   const isSelected = selectedEpisode?.episodeNumber === ep.episodeNumber;
+                  const epJob = getNasJob(selectedSeason, ep.episodeNumber);
+                  const isEpCompleted = epJob?.status === 'completed' || ep.isNasCached;
+                  const isEpDownloading = epJob?.status === 'downloading';
+                  const isEpQueued = epJob?.status === 'queued';
+                  const epPercent = epJob && epJob.file_size_bytes > 0
+                    ? Math.min(100, Math.round((epJob.downloaded_bytes / epJob.file_size_bytes) * 100))
+                    : 0;
+
                   return (
                     <div
                       key={ep.episodeNumber}
@@ -675,9 +937,19 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                             EP {ep.episodeNumber}
                           </div>
                         )}
-                        {ep.isNasCached && (
-                          <div className="absolute top-1 left-1 bg-amber-500 text-black p-0.5 rounded shadow">
-                            <Zap className="w-2.5 h-2.5 fill-black" />
+                        {isEpCompleted && (
+                          <div className="absolute top-1 left-1 bg-emerald-500 text-black p-0.5 rounded shadow" title="Cached on NAS">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                          </div>
+                        )}
+                        {isEpDownloading && (
+                          <div className="absolute top-1 left-1 bg-amber-500 text-black p-0.5 rounded shadow animate-pulse" title="Caching to NAS">
+                            <RefreshCw className="w-2.5 h-2.5 animate-spin stroke-[3]" />
+                          </div>
+                        )}
+                        {isEpQueued && (
+                          <div className="absolute top-1 left-1 bg-blue-500 text-white p-0.5 rounded shadow" title="Queued for NAS cache">
+                            <Clock className="w-2.5 h-2.5 stroke-[3]" />
                           </div>
                         )}
                       </div>
@@ -689,13 +961,29 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           </span>
 
                           <div className="flex items-center gap-1.5 flex-none ml-1">
-                            {ep.isNasCached ? (
+                            {isEpCompleted ? (
                               <span
-                                className="flex items-center gap-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded text-[10px] font-bold"
+                                className="flex items-center gap-1 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded text-[10px] font-bold"
                                 title="Cached on local NAS"
                               >
-                                <Zap className="w-2.5 h-2.5 fill-amber-300" />
+                                <Check className="w-2.5 h-2.5 text-emerald-400 stroke-[3]" />
                                 <span>Cached</span>
+                              </span>
+                            ) : isEpDownloading ? (
+                              <span
+                                className="flex items-center gap-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse"
+                                title="Currently caching to NAS"
+                              >
+                                <RefreshCw className="w-2.5 h-2.5 animate-spin text-amber-400" />
+                                <span>{epPercent}%</span>
+                              </span>
+                            ) : isEpQueued ? (
+                              <span
+                                className="flex items-center gap-1 bg-blue-500/20 text-blue-300 border border-blue-500/40 px-1.5 py-0.5 rounded text-[10px] font-bold"
+                                title="Queued for NAS cache"
+                              >
+                                <Clock className="w-2.5 h-2.5 text-blue-400" />
+                                <span>Queued</span>
                               </span>
                             ) : (
                               <button
@@ -717,7 +1005,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                                 handleDeviceDownloadEpisode(selectedSeason, ep);
                               }}
                               className="p-1 hover:bg-white/20 text-gray-400 hover:text-white rounded transition-colors"
-                              title={ep.isNasCached ? "Download episode to device from NAS" : "Download episode to device"}
+                              title={isEpCompleted ? "Download episode to device from NAS" : "Download episode to device"}
                             >
                               <Download className="w-3.5 h-3.5" />
                             </button>

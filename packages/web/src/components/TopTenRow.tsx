@@ -1,7 +1,7 @@
 import React from 'react';
 import { CatalogItem } from '../types/api';
 import { usePreFetcher } from '../hooks/usePreFetcher';
-import { Zap } from 'lucide-react';
+import { Zap, RefreshCw, Clock } from 'lucide-react';
 
 interface TopTenRowProps {
   items: CatalogItem[];
@@ -12,17 +12,24 @@ interface TopTenRowProps {
   mediaType: 'movie' | 'tv';
   onMediaTypeChange: (type: 'movie' | 'tv') => void;
   onSelect: (item: CatalogItem) => void;
+  nasStatusMap?: Record<string, { status: 'completed' | 'downloading' | 'queued'; percent: number }>;
 }
 
 const TopTenCard: React.FC<{
   item: CatalogItem;
   rank: number;
   onSelect: (item: CatalogItem) => void;
-}> = ({ item, rank, onSelect }) => {
+  nasStatus?: { status: 'completed' | 'downloading' | 'queued'; percent: number };
+}> = ({ item, rank, onSelect, nasStatus }) => {
   const prefetchProps = usePreFetcher({
     imdbId: item.imdbId,
     type: item.type,
   });
+
+  const isCompleted = nasStatus?.status === 'completed' || item.isNasCached;
+  const isDownloading = nasStatus?.status === 'downloading';
+  const isQueued = nasStatus?.status === 'queued';
+  const percent = nasStatus?.percent || 0;
 
   return (
     <div
@@ -66,10 +73,21 @@ const TopTenCard: React.FC<{
           </div>
         )}
 
-        {/* NAS Cached Badge */}
-        {item.isNasCached && (
-          <div className="absolute top-1.5 left-1.5 bg-amber-500 text-black p-1 rounded-full shadow">
+        {/* NAS Status Badges */}
+        {isCompleted && (
+          <div className="absolute top-1.5 left-1.5 bg-emerald-500 text-black p-1 rounded-full shadow" title="Cached on Local NAS">
             <Zap className="w-3 h-3 fill-black" />
+          </div>
+        )}
+        {isDownloading && (
+          <div className="absolute top-1.5 left-1.5 bg-amber-500 text-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-1 text-[10px] font-black animate-pulse" title={`Caching to NAS (${percent}%)`}>
+            <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+            <span>{percent}%</span>
+          </div>
+        )}
+        {isQueued && (
+          <div className="absolute top-1.5 left-1.5 bg-blue-500 text-white p-1 rounded-full shadow" title="Queued for NAS Caching">
+            <Clock className="w-3 h-3" />
           </div>
         )}
       </div>
@@ -86,6 +104,7 @@ export const TopTenRow: React.FC<TopTenRowProps> = ({
   mediaType,
   onMediaTypeChange,
   onSelect,
+  nasStatusMap,
 }) => {
   return (
     <div className="my-8 px-4 sm:px-12 space-y-4">
@@ -151,9 +170,20 @@ export const TopTenRow: React.FC<TopTenRowProps> = ({
 
       {/* Horizontal Carousel */}
       <div className="flex gap-2 sm:gap-4 overflow-x-auto overflow-y-hidden pb-4 pt-2 no-scrollbar scroll-smooth">
-        {items.map((item, idx) => (
-          <TopTenCard key={item.imdbId || item.id} item={item} rank={idx + 1} onSelect={onSelect} />
-        ))}
+        {items.map((item, idx) => {
+          const nasStatus = nasStatusMap
+            ? nasStatusMap[item.imdbId] || (item.tmdbId ? nasStatusMap[String(item.tmdbId)] : undefined)
+            : undefined;
+          return (
+            <TopTenCard
+              key={item.imdbId || item.id}
+              item={item}
+              rank={idx + 1}
+              onSelect={onSelect}
+              nasStatus={nasStatus}
+            />
+          );
+        })}
       </div>
     </div>
   );

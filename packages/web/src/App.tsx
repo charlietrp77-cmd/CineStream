@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Play, Sparkles, Film, Tv, Plus } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Play, Sparkles, Film, Tv, Plus, Zap, RefreshCw, Clock } from 'lucide-react';
 import { useSpatialNavInit } from './hooks/useSpatialNav';
 import { useProfileStore } from './store/useProfileStore';
 import { useOfflineStore } from './store/useOfflineStore';
@@ -49,6 +49,7 @@ export const App: React.FC = () => {
   const [continueWatching, setContinueWatching] = useState<WatchProgress[]>([]);
   const [myListItems, setMyListItems] = useState<CatalogItem[]>([]);
   const [nasCachedItems, setNasCachedItems] = useState<CatalogItem[]>([]);
+  const [nasJobs, setNasJobs] = useState<NasCacheItem[]>([]);
   const [activeDownloadsCount, setActiveDownloadsCount] = useState(0);
 
   // Modals & Drawers
@@ -165,35 +166,110 @@ export const App: React.FC = () => {
     } catch (_) {}
   };
 
+  const updateNasState = (jobs: NasCacheItem[]) => {
+    setNasJobs(jobs);
+    const active = jobs.filter((j) => j.status === 'downloading' || j.status === 'queued');
+    setActiveDownloadsCount(active.length);
+
+    const seen = new Set<string>();
+    const completedUnique: CatalogItem[] = [];
+    for (const j of jobs) {
+      if (j.status !== 'completed') continue;
+      const key = j.imdb_id || String(j.tmdb_id);
+      if (!seen.has(key)) {
+        seen.add(key);
+        completedUnique.push({
+          id: j.tmdb_id,
+          imdbId: j.imdb_id,
+          tmdbId: j.tmdb_id,
+          type: j.media_type,
+          title: j.title,
+          overview: j.episode_title || '',
+          posterUrl: j.poster_url,
+          backdropUrl: j.backdrop_url,
+          clearLogoUrl: null,
+          voteAverage: 0,
+          isNasCached: true,
+          qualityBadge: j.quality_badge,
+          genres: [],
+        });
+      }
+    }
+    setNasCachedItems(completedUnique);
+  };
+
   const fetchNasJobs = async () => {
     try {
       const res = await fetch('/api/nas/jobs');
       if (res.ok) {
         const jobs: NasCacheItem[] = await res.json();
-        const active = jobs.filter((j) => j.status === 'downloading' || j.status === 'queued');
-        setActiveDownloadsCount(active.length);
-
-        const completed = jobs
-          .filter((j) => j.status === 'completed')
-          .map((j) => ({
-            id: j.tmdb_id,
-            imdbId: j.imdb_id,
-            tmdbId: j.tmdb_id,
-            type: j.media_type,
-            title: j.title,
-            overview: j.episode_title || '',
-            posterUrl: j.poster_url,
-            backdropUrl: j.backdrop_url,
-            clearLogoUrl: null,
-            voteAverage: 0,
-            isNasCached: true,
-            qualityBadge: j.quality_badge,
-            genres: [],
-          }));
-        setNasCachedItems(completed);
+        updateNasState(jobs);
       }
     } catch (_) {}
   };
+
+  // Sync NAS jobs and WebSocket updates globally across the app
+  useEffect(() => {
+    fetchNasJobs();
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/downloads`;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: any = null;
+
+    const connect = () => {
+      try {
+        ws = new WebSocket(wsUrl);
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.jobs) {
+              updateNasState(data.jobs as NasCacheItem[]);
+            }
+          } catch (_) {}
+        };
+        ws.onclose = () => {
+          reconnectTimer = setTimeout(connect, 4000);
+        };
+      } catch (_) {}
+    };
+
+    connect();
+
+    return () => {
+      if (ws) ws.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, []);
+
+  const nasStatusMap = useMemo(() => {
+    const map: Record<string, { status: 'completed' | 'downloading' | 'queued'; percent: number }> = {};
+    for (const job of nasJobs) {
+      const pct = job.file_size_bytes > 0
+        ? Math.min(100, Math.round((job.downloaded_bytes / job.file_size_bytes) * 100))
+        : 0;
+
+      const keys = [job.imdb_id, String(job.tmdb_id)].filter(Boolean);
+      for (const key of keys) {
+        const existing = map[key];
+        if (job.status === 'downloading') {
+          map[key] = {
+            status: 'downloading',
+            percent: Math.max(existing?.status === 'downloading' ? existing.percent : 0, pct),
+          };
+        } else if (job.status === 'queued') {
+          if (!existing || existing.status !== 'downloading') {
+            map[key] = { status: 'queued', percent: 0 };
+          }
+        } else if (job.status === 'completed') {
+          if (!existing) {
+            map[key] = { status: 'completed', percent: 100 };
+          }
+        }
+      }
+    }
+    return map;
+  }, [nasJobs]);
 
   // Profile gate guard
   if (isGateOpen || !activeProfile) {
@@ -390,6 +466,7 @@ export const App: React.FC = () => {
             {/* Hero Billboard */}
             <HeroBillboard
               item={currentHero}
+              nasStatus={currentHero ? (nasStatusMap[currentHero.imdbId] || (currentHero.tmdbId ? nasStatusMap[String(currentHero.tmdbId)] : undefined)) : undefined}
               onPlay={(item) => setSelectedModalItem(item)}
               onMoreInfo={(item) => setSelectedModalItem(item)}
             />
@@ -404,6 +481,7 @@ export const App: React.FC = () => {
                       items={continueWatchingCatalog}
                       onSelect={(item) => setSelectedModalItem(item)}
                       progressMap={progressMap}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -417,6 +495,7 @@ export const App: React.FC = () => {
                       mediaType={topTenMediaType}
                       onMediaTypeChange={setTopTenMediaType}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -426,6 +505,7 @@ export const App: React.FC = () => {
                       subtitle="Guaranteed 1080p & 4K BluRay / WEB-DL streams verified"
                       items={newReleases}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -435,6 +515,7 @@ export const App: React.FC = () => {
                       subtitle="Instantly playable from your home server over Gigabit LAN"
                       items={nasCachedItems}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -443,6 +524,7 @@ export const App: React.FC = () => {
                       title="My List"
                       items={myListItems}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
                 </>
@@ -457,6 +539,7 @@ export const App: React.FC = () => {
                       items={movieCw}
                       onSelect={(item) => setSelectedModalItem(item)}
                       progressMap={progressMap}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -470,6 +553,7 @@ export const App: React.FC = () => {
                       mediaType="movie"
                       onMediaTypeChange={() => {}}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -479,6 +563,7 @@ export const App: React.FC = () => {
                       subtitle="Guaranteed 1080p & 4K BluRay / WEB-DL releases"
                       items={newReleases}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -488,6 +573,7 @@ export const App: React.FC = () => {
                       subtitle="Popular theatrical and streaming films"
                       items={trendingMovies}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -497,6 +583,7 @@ export const App: React.FC = () => {
                       subtitle="Gigabit LAN Direct Playback"
                       items={movieNas}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -505,6 +592,7 @@ export const App: React.FC = () => {
                       title="My Saved Movies"
                       items={movieMyList}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
                 </>
@@ -519,6 +607,7 @@ export const App: React.FC = () => {
                       items={seriesCw}
                       onSelect={(item) => setSelectedModalItem(item)}
                       progressMap={progressMap}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -532,6 +621,7 @@ export const App: React.FC = () => {
                       mediaType="tv"
                       onMediaTypeChange={() => {}}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -541,6 +631,7 @@ export const App: React.FC = () => {
                       subtitle="Most-watched TV series this week"
                       items={trendingSeries}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -550,6 +641,7 @@ export const App: React.FC = () => {
                       subtitle="Gigabit LAN Direct Playback"
                       items={seriesNas}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -558,6 +650,7 @@ export const App: React.FC = () => {
                       title="My Saved TV Shows"
                       items={seriesMyList}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
                 </>
@@ -582,6 +675,7 @@ export const App: React.FC = () => {
                       subtitle="Pristine 2160p releases verified non-cam"
                       items={uhdReleases}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -591,6 +685,7 @@ export const App: React.FC = () => {
                       subtitle="Full catalog of releases verified ready for playback"
                       items={newReleases}
                       onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
                     />
                   )}
 
@@ -599,39 +694,65 @@ export const App: React.FC = () => {
                     <div className="px-4 sm:px-12 pt-6 space-y-4">
                       <h3 className="text-lg font-bold text-gray-200">Browse Verified Catalog</h3>
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                        {newReleases.map((item) => (
-                          <div
-                            key={item.imdbId || item.id}
-                            onClick={() => setSelectedModalItem(item)}
-                            className="group relative rounded-lg overflow-hidden bg-[#181818] aspect-[2/3] cursor-pointer border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105"
-                          >
-                            {item.posterUrl ? (
-                              <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center p-3 text-center text-xs font-bold text-gray-300">
-                                {item.title}
-                              </div>
-                            )}
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <div className="bg-red-600 p-3 rounded-full shadow-lg">
-                                <Play className="w-5 h-5 fill-white text-white" />
-                              </div>
-                            </div>
-                            <div className="absolute top-2 left-2 z-10">
-                              {item.qualityBadge && (
-                                <span className="bg-black/80 backdrop-blur-sm text-white px-1.5 py-0.5 rounded text-[9px] font-bold border border-white/20">
-                                  {item.qualityBadge}
-                                </span>
+                        {newReleases.map((item) => {
+                          const nasStatus = nasStatusMap[item.imdbId] || (item.tmdbId ? nasStatusMap[String(item.tmdbId)] : undefined);
+                          const isCompleted = nasStatus?.status === 'completed' || item.isNasCached;
+                          const isDownloading = nasStatus?.status === 'downloading';
+                          const isQueued = nasStatus?.status === 'queued';
+                          const pct = nasStatus?.percent || 0;
+
+                          return (
+                            <div
+                              key={item.imdbId || item.id}
+                              onClick={() => setSelectedModalItem(item)}
+                              className="group relative rounded-lg overflow-hidden bg-[#181818] aspect-[2/3] cursor-pointer border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105"
+                            >
+                              {item.posterUrl ? (
+                                <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center p-3 text-center text-xs font-bold text-gray-300">
+                                  {item.title}
+                                </div>
                               )}
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <div className="bg-red-600 p-3 rounded-full shadow-lg">
+                                  <Play className="w-5 h-5 fill-white text-white" />
+                                </div>
+                              </div>
+                              <div className="absolute top-2 left-2 z-10 flex flex-col gap-1">
+                                {isCompleted && (
+                                  <span className="flex items-center gap-1 bg-emerald-500 text-black px-1.5 py-0.5 rounded text-[10px] font-black uppercase shadow">
+                                    <Zap className="w-2.5 h-2.5 fill-black" />
+                                    NAS
+                                  </span>
+                                )}
+                                {isDownloading && (
+                                  <span className="flex items-center gap-1 bg-amber-500 text-black px-1.5 py-0.5 rounded text-[10px] font-black uppercase shadow animate-pulse">
+                                    <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                    {pct}%
+                                  </span>
+                                )}
+                                {isQueued && (
+                                  <span className="flex items-center gap-1 bg-blue-500 text-white px-1.5 py-0.5 rounded text-[10px] font-black uppercase shadow">
+                                    <Clock className="w-2.5 h-2.5" />
+                                    QUEUED
+                                  </span>
+                                )}
+                                {item.qualityBadge && (
+                                  <span className="bg-black/80 backdrop-blur-sm text-white px-1.5 py-0.5 rounded text-[9px] font-bold border border-white/20">
+                                    {item.qualityBadge}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black via-black/80 to-transparent">
+                                <span className="text-xs font-bold text-white truncate block">{item.title}</span>
+                                <span className="text-[10px] text-gray-400 uppercase font-semibold">
+                                  {item.releaseDate ? item.releaseDate.split('-')[0] : 'Movie'}
+                                </span>
+                              </div>
                             </div>
-                            <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black via-black/80 to-transparent">
-                              <span className="text-xs font-bold text-white truncate block">{item.title}</span>
-                              <span className="text-[10px] text-gray-400 uppercase font-semibold">
-                                {item.releaseDate ? item.releaseDate.split('-')[0] : 'Movie'}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -653,32 +774,60 @@ export const App: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {myListItems.map((item) => (
-                      <div
-                        key={item.imdbId || item.id}
-                        onClick={() => setSelectedModalItem(item)}
-                        className="group relative rounded-lg overflow-hidden bg-[#181818] aspect-[2/3] cursor-pointer border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105"
-                      >
-                        {item.posterUrl ? (
-                          <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center p-3 text-center text-xs font-bold text-gray-300">
-                            {item.title}
+                    {myListItems.map((item) => {
+                      const nasStatus = nasStatusMap[item.imdbId] || (item.tmdbId ? nasStatusMap[String(item.tmdbId)] : undefined);
+                      const isCompleted = nasStatus?.status === 'completed' || item.isNasCached;
+                      const isDownloading = nasStatus?.status === 'downloading';
+                      const isQueued = nasStatus?.status === 'queued';
+                      const pct = nasStatus?.percent || 0;
+
+                      return (
+                        <div
+                          key={item.imdbId || item.id}
+                          onClick={() => setSelectedModalItem(item)}
+                          className="group relative rounded-lg overflow-hidden bg-[#181818] aspect-[2/3] cursor-pointer border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105"
+                        >
+                          {item.posterUrl ? (
+                            <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center p-3 text-center text-xs font-bold text-gray-300">
+                              {item.title}
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <div className="bg-red-600 p-3 rounded-full shadow-lg">
+                              <Play className="w-5 h-5 fill-white text-white" />
+                            </div>
                           </div>
-                        )}
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <div className="bg-red-600 p-3 rounded-full shadow-lg">
-                            <Play className="w-5 h-5 fill-white text-white" />
+                          <div className="absolute top-2 left-2 z-10 flex flex-col gap-1">
+                            {isCompleted && (
+                              <span className="flex items-center gap-1 bg-emerald-500 text-black px-1.5 py-0.5 rounded text-[10px] font-black uppercase shadow">
+                                <Zap className="w-2.5 h-2.5 fill-black" />
+                                NAS
+                              </span>
+                            )}
+                            {isDownloading && (
+                              <span className="flex items-center gap-1 bg-amber-500 text-black px-1.5 py-0.5 rounded text-[10px] font-black uppercase shadow animate-pulse">
+                                <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                {pct}%
+                              </span>
+                            )}
+                            {isQueued && (
+                              <span className="flex items-center gap-1 bg-blue-500 text-white px-1.5 py-0.5 rounded text-[10px] font-black uppercase shadow">
+                                <Clock className="w-2.5 h-2.5" />
+                                QUEUED
+                              </span>
+                            )}
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black via-black/80 to-transparent">
+                            <span className="text-xs font-bold text-white truncate block">{item.title}</span>
+                            <span className="text-[10px] text-gray-400 uppercase font-semibold">
+                              {item.type === 'tv' ? 'TV Series' : 'Movie'}
+                            </span>
                           </div>
                         </div>
-                        <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black via-black/80 to-transparent">
-                          <span className="text-xs font-bold text-white truncate block">{item.title}</span>
-                          <span className="text-[10px] text-gray-400 uppercase font-semibold">
-                            {item.type === 'tv' ? 'TV Series' : 'Movie'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {continueWatchingCatalog.length > 0 && (
@@ -688,6 +837,7 @@ export const App: React.FC = () => {
                         items={continueWatchingCatalog}
                         onSelect={(item) => setSelectedModalItem(item)}
                         progressMap={progressMap}
+                        nasStatusMap={nasStatusMap}
                       />
                     </div>
                   )}
@@ -728,6 +878,7 @@ export const App: React.FC = () => {
           setIsSearchOpen(false);
           setSelectedModalItem(item);
         }}
+        nasStatusMap={nasStatusMap}
       />
 
       {/* Storage & Downloads Drawer */}

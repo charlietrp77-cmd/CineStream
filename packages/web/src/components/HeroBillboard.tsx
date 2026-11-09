@@ -1,17 +1,23 @@
 import React from 'react';
-import { Play, Info, Zap, Sparkles } from 'lucide-react';
+import { Play, Info, Zap, Sparkles, RefreshCw, Clock } from 'lucide-react';
 import { CatalogItem } from '../types/api';
 
 interface HeroBillboardProps {
   item: CatalogItem | null;
   onPlay: (item: CatalogItem) => void;
   onMoreInfo: (item: CatalogItem) => void;
+  nasStatus?: { status: 'completed' | 'downloading' | 'queued'; percent: number };
 }
 
-export const HeroBillboard: React.FC<HeroBillboardProps> = ({ item, onPlay, onMoreInfo }) => {
+export const HeroBillboard: React.FC<HeroBillboardProps> = ({ item, onPlay, onMoreInfo, nasStatus }) => {
   if (!item) {
     return <div className="h-[65vh] sm:h-[80vh] w-full bg-[#141414] animate-pulse" />;
   }
+
+  const isCompleted = nasStatus?.status === 'completed' || item.isNasCached;
+  const isDownloading = nasStatus?.status === 'downloading';
+  const isQueued = nasStatus?.status === 'queued';
+  const percent = nasStatus?.percent || 0;
 
   return (
     <div className="relative h-[60vh] sm:h-[72vh] lg:h-[76vh] w-full select-none overflow-hidden">
@@ -32,10 +38,20 @@ export const HeroBillboard: React.FC<HeroBillboardProps> = ({ item, onPlay, onMo
       <div className="absolute bottom-12 sm:bottom-20 left-4 sm:left-12 max-w-2xl z-20 space-y-4">
         {/* Quality Badges */}
         <div className="flex flex-wrap items-center gap-2">
-          {item.isNasCached ? (
-            <span className="flex items-center gap-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase shadow">
-              <Zap className="w-3 h-3 fill-amber-300" />
+          {isCompleted ? (
+            <span className="flex items-center gap-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase shadow">
+              <Zap className="w-3 h-3 fill-emerald-300" />
               ⚡ Cached on NAS
+            </span>
+          ) : isDownloading ? (
+            <span className="flex items-center gap-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase shadow animate-pulse">
+              <RefreshCw className="w-3 h-3 animate-spin text-amber-300" />
+              ⏳ Caching to NAS ({percent}%)
+            </span>
+          ) : isQueued ? (
+            <span className="flex items-center gap-1 bg-blue-500/20 text-blue-300 border border-blue-500/40 px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase shadow">
+              <Clock className="w-3 h-3 text-blue-300" />
+              ⏳ Queued for NAS Caching
             </span>
           ) : (
             <span className="flex items-center gap-1 bg-red-600/20 text-red-400 border border-red-600/30 px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase">

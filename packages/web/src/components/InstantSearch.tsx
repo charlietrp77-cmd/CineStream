@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Zap } from 'lucide-react';
+import { Search, X, Zap, RefreshCw, Clock } from 'lucide-react';
 import { CatalogItem } from '../types/api';
 import { useProfileStore } from '../store/useProfileStore';
 
@@ -7,6 +7,7 @@ interface InstantSearchProps {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (item: CatalogItem) => void;
+  nasStatusMap?: Record<string, { status: 'completed' | 'downloading' | 'queued'; percent: number }>;
 }
 
 const TV_KEYBOARD = [
@@ -19,7 +20,7 @@ const TV_KEYBOARD = [
   ['SPACE', 'CLEAR', 'BACKSPACE'],
 ];
 
-export const InstantSearch: React.FC<InstantSearchProps> = ({ isOpen, onClose, onSelect }) => {
+export const InstantSearch: React.FC<InstantSearchProps> = ({ isOpen, onClose, onSelect, nasStatusMap }) => {
   const { activeProfile } = useProfileStore();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CatalogItem[]>([]);
@@ -196,11 +197,40 @@ export const InstantSearch: React.FC<InstantSearchProps> = ({ isOpen, onClose, o
                   </div>
                 )}
 
-                {item.isNasCached && (
-                  <div className="absolute top-1.5 left-1.5 bg-amber-500 text-black p-1 rounded-full shadow">
-                    <Zap className="w-3 h-3 fill-black" />
-                  </div>
-                )}
+                {/* NAS Status Badges */}
+                {(() => {
+                  const nasStatus = nasStatusMap
+                    ? nasStatusMap[item.imdbId] || (item.tmdbId ? nasStatusMap[String(item.tmdbId)] : undefined)
+                    : undefined;
+                  const isCompleted = nasStatus?.status === 'completed' || item.isNasCached;
+                  const isDownloading = nasStatus?.status === 'downloading';
+                  const isQueued = nasStatus?.status === 'queued';
+                  const pct = nasStatus?.percent || 0;
+
+                  if (isCompleted) {
+                    return (
+                      <div className="absolute top-1.5 left-1.5 bg-emerald-500 text-black p-1 rounded-full shadow" title="Cached on Local NAS">
+                        <Zap className="w-3 h-3 fill-black" />
+                      </div>
+                    );
+                  }
+                  if (isDownloading) {
+                    return (
+                      <div className="absolute top-1.5 left-1.5 bg-amber-500 text-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-1 text-[9px] font-black animate-pulse" title={`Caching to NAS (${pct}%)`}>
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                        <span>{pct}%</span>
+                      </div>
+                    );
+                  }
+                  if (isQueued) {
+                    return (
+                      <div className="absolute top-1.5 left-1.5 bg-blue-500 text-white p-1 rounded-full shadow" title="Queued for NAS Caching">
+                        <Clock className="w-3 h-3" />
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               <div className="text-xs font-semibold text-gray-200 truncate group-hover:text-white">

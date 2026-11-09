@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Zap, Play } from 'lucide-react';
+import { Zap, Play, RefreshCw, Clock } from 'lucide-react';
 import { CatalogItem } from '../types/api';
 import { usePreFetcher } from '../hooks/usePreFetcher';
 
@@ -10,13 +10,15 @@ interface VirtualPosterRowProps {
   items: CatalogItem[];
   onSelect: (item: CatalogItem) => void;
   progressMap?: Record<string, { positionMs: number; durationMs: number }>;
+  nasStatusMap?: Record<string, { status: 'completed' | 'downloading' | 'queued'; percent: number }>;
 }
 
 const PosterCard: React.FC<{
   item: CatalogItem;
   onSelect: (item: CatalogItem) => void;
   progress?: { positionMs: number; durationMs: number };
-}> = ({ item, onSelect, progress }) => {
+  nasStatus?: { status: 'completed' | 'downloading' | 'queued'; percent: number };
+}> = ({ item, onSelect, progress, nasStatus }) => {
   const prefetchProps = usePreFetcher({
     imdbId: item.imdbId,
     type: item.type,
@@ -26,6 +28,11 @@ const PosterCard: React.FC<{
     progress && progress.durationMs > 0
       ? Math.min(100, Math.round((progress.positionMs / progress.durationMs) * 100))
       : 0;
+
+  const isCompleted = nasStatus?.status === 'completed' || item.isNasCached;
+  const isDownloading = nasStatus?.status === 'downloading';
+  const isQueued = nasStatus?.status === 'queued';
+  const percent = nasStatus?.percent || 0;
 
   return (
     <div
@@ -56,10 +63,22 @@ const PosterCard: React.FC<{
 
       {/* Top Badges */}
       <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
-        {item.isNasCached && (
-          <span className="flex items-center gap-1 bg-amber-500 text-black px-1.5 py-0.5 rounded text-[10px] font-black uppercase shadow">
+        {isCompleted && (
+          <span className="flex items-center gap-1 bg-emerald-500 text-black px-1.5 py-0.5 rounded text-[10px] font-black uppercase shadow" title="Cached on Local NAS">
             <Zap className="w-2.5 h-2.5 fill-black" />
             NAS
+          </span>
+        )}
+        {isDownloading && (
+          <span className="flex items-center gap-1 bg-amber-500 text-black px-1.5 py-0.5 rounded text-[10px] font-black uppercase shadow animate-pulse" title={`Caching to NAS (${percent}%)`}>
+            <RefreshCw className="w-2.5 h-2.5 animate-spin stroke-[2.5]" />
+            {percent}%
+          </span>
+        )}
+        {isQueued && (
+          <span className="flex items-center gap-1 bg-blue-500 text-white px-1.5 py-0.5 rounded text-[10px] font-black uppercase shadow" title="Queued for NAS Caching">
+            <Clock className="w-2.5 h-2.5" />
+            QUEUED
           </span>
         )}
         {item.qualityBadge && (
@@ -85,6 +104,7 @@ export const VirtualPosterRow: React.FC<VirtualPosterRowProps> = ({
   items,
   onSelect,
   progressMap,
+  nasStatusMap,
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -105,12 +125,16 @@ export const VirtualPosterRow: React.FC<VirtualPosterRowProps> = ({
       >
         {items.map((item) => {
           const progress = progressMap ? progressMap[item.imdbId] : undefined;
+          const nasStatus = nasStatusMap
+            ? nasStatusMap[item.imdbId] || (item.tmdbId ? nasStatusMap[String(item.tmdbId)] : undefined)
+            : undefined;
           return (
             <PosterCard
               key={`${item.imdbId || item.id}`}
               item={item}
               onSelect={onSelect}
               progress={progress}
+              nasStatus={nasStatus}
             />
           );
         })}

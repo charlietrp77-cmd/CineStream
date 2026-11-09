@@ -116,12 +116,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Downloads & NAS Cache Drawer Trigger */}
           <button
             onClick={onOpenDownloads}
-            className="relative text-gray-300 hover:text-white p-1 rounded-full transition-colors"
-            title="NAS & Offline Storage"
+            className={`relative p-1 rounded-full transition-colors ${
+              activeDownloadsCount > 0
+                ? 'text-amber-400 hover:text-amber-300'
+                : 'text-gray-300 hover:text-white'
+            }`}
+            title={activeDownloadsCount > 0 ? `NAS & Offline Storage (${activeDownloadsCount} active)` : 'NAS & Offline Storage'}
           >
-            <HardDrive className="w-5 h-5 sm:w-6 sm:h-6" />
+            <HardDrive className={`w-5 h-5 sm:w-6 sm:h-6 ${activeDownloadsCount > 0 ? 'animate-pulse' : ''}`} />
             {activeDownloadsCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 bg-amber-500 text-black text-[10px] font-black rounded-full w-4 h-4 flex items-center justify-center shadow animate-bounce">
                 {activeDownloadsCount}
               </span>
             )}
