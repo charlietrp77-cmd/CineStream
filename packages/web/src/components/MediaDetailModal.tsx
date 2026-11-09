@@ -222,19 +222,22 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
   const handleDeviceDownload = async () => {
     if (streams.length === 0) return;
-    const bestStream = streams[0];
+    const targetStream = bestStream || streams[0];
+    if (!targetStream) return;
+
     const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
     const season = item.type === 'tv' ? selectedSeason : 0;
     const episode = item.type === 'tv' ? selectedEpisode?.episodeNumber || 1 : 0;
-    const downloadId = `${targetImdb}_${season}_${episode}`;
-    const streamUrl = bestStream.rawUrl || bestStream.url;
+    const downloadId = `${targetImdb}_${season}_${episode}_${targetStream.id}`;
+    const streamUrl = targetStream.rawUrl || targetStream.url;
 
     // Trigger browser file download on desktop
     const pad = (n: number) => n.toString().padStart(2, '0');
     const epSuffix = item.type === 'tv' ? ` - S${pad(season)}E${pad(episode)}` : '';
+    const qualSuffix = ` [${targetStream.badges.resolution}${targetStream.badges.sizeText ? ` - ${targetStream.badges.sizeText}` : ''}]`;
     const link = document.createElement('a');
     link.href = streamUrl.includes('/api/nas/stream') ? `${streamUrl}?download=1` : streamUrl;
-    link.download = `${item.title}${epSuffix}.mkv`;
+    link.download = `${item.title}${epSuffix}${qualSuffix}.mkv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -251,11 +254,61 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       posterUrl: item.posterUrl || undefined,
       backdropUrl: item.backdropUrl || undefined,
       streamUrl,
-      headers: bestStream.headers,
+      headers: targetStream.headers,
     });
 
     await saveItem(downloadedItem);
-    setNasSuccessMessage(bestStream.badges.isNasCached ? 'Started direct download from NAS to this device!' : 'Started download to this device!');
+    const sizeMsg = targetStream.badges.sizeText ? ` (${targetStream.badges.sizeText})` : '';
+    setNasSuccessMessage(
+      targetStream.badges.isNasCached
+        ? `Started direct download from NAS to this device${sizeMsg}!`
+        : `Started downloading ${targetStream.badges.resolution}${sizeMsg} (${targetStream.badges.source}) to this device!`
+    );
+    setTimeout(() => setNasSuccessMessage(null), 4000);
+  };
+
+  const handleDownloadStream = async (stream: ResolvedStream) => {
+    const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
+    const season = item.type === 'tv' ? selectedSeason : 0;
+    const episode = item.type === 'tv' ? selectedEpisode?.episodeNumber || 1 : 0;
+    const downloadId = `${targetImdb}_${season}_${episode}_${stream.id}`;
+    const streamUrl = stream.rawUrl || stream.url;
+
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const epSuffix = item.type === 'tv' ? ` - S${pad(season)}E${pad(episode)}` : '';
+    const qualSuffix = ` [${stream.badges.resolution}${stream.badges.sizeText ? ` - ${stream.badges.sizeText}` : ''}]`;
+    const filename = `${item.title}${epSuffix}${qualSuffix}.mkv`;
+
+    // Trigger direct browser file download on desktop
+    const downloadLink = streamUrl.includes('/api/nas/stream') ? `${streamUrl}?download=1` : streamUrl;
+    const link = document.createElement('a');
+    link.href = downloadLink;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Register with offline store / native bridge
+    try {
+      const downloadedItem = await offlineDownloader.startDownload({
+        downloadId,
+        imdbId: targetImdb,
+        tmdbId: item.tmdbId,
+        mediaType: item.type,
+        season,
+        episode,
+        title: item.title,
+        episodeTitle: selectedEpisode?.title,
+        posterUrl: item.posterUrl || undefined,
+        backdropUrl: item.backdropUrl || undefined,
+        streamUrl,
+        headers: stream.headers,
+      });
+      await saveItem(downloadedItem);
+    } catch (_) {}
+
+    const sizeMsg = stream.badges.sizeText ? ` (${stream.badges.sizeText})` : '';
+    setNasSuccessMessage(`Started downloading ${stream.badges.resolution}${sizeMsg} (${stream.badges.source}) to device!`);
     setTimeout(() => setNasSuccessMessage(null), 4000);
   };
 
@@ -519,11 +572,25 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               onClick={handleDeviceDownload}
               disabled={loadingStreams || streams.length === 0}
               className="flex items-center gap-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white px-4 py-2.5 rounded font-medium text-sm transition-all"
+              title={
+                bestStream
+                  ? `Download ${bestStream.badges.source} ${bestStream.badges.resolution}${bestStream.badges.sizeText ? ` (${bestStream.badges.sizeText})` : ''} to this device`
+                  : 'Download for trip'
+              }
             >
-              <Download className="w-4 h-4" />
-              <span>
-                {bestStream?.badges.isNasCached ? 'Download from NAS' : 'Download for Trip'}
-              </span>
+              <Download className="w-4 h-4 flex-none" />
+              <div className="flex flex-wrap items-baseline gap-1.5">
+                <span>
+                  {bestStream?.badges.isNasCached ? 'Download from NAS' : 'Download for Trip'}
+                </span>
+                {bestStream && (
+                  <span className="text-xs text-gray-300 font-normal">
+                    ({bestStream.badges.resolution}
+                    {bestStream.badges.sizeText ? ` • ${bestStream.badges.sizeText}` : ''}
+                    {bestStream.badges.source ? ` • ${bestStream.badges.source}` : ''})
+                  </span>
+                )}
+              </div>
             </button>
 
             {/* My List */}
@@ -753,7 +820,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   </div>
 
                   {/* Badges & Play Button */}
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 sm:gap-3">
                     <div className="flex items-center gap-1.5 text-[10px] font-bold">
                       <span className="bg-white/10 px-2 py-0.5 rounded text-white">
                         {stream.badges.resolution}
@@ -773,7 +840,26 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                       )}
                     </div>
 
-                    <button className="bg-white/10 hover:bg-white text-white hover:text-black p-2 rounded-full transition-colors">
+                    {/* Download this specific stream */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDownloadStream(stream);
+                      }}
+                      className="bg-white/10 hover:bg-white text-white hover:text-black p-2 rounded-full transition-colors"
+                      title={`Download this ${stream.badges.resolution}${stream.badges.sizeText ? ` (${stream.badges.sizeText})` : ''} stream to device`}
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPlayStream(stream, item.title, selectedEpisode?.title);
+                      }}
+                      className="bg-white/10 hover:bg-white text-white hover:text-black p-2 rounded-full transition-colors"
+                      title="Play stream"
+                    >
                       <Play className="w-3.5 h-3.5 fill-current" />
                     </button>
                   </div>
