@@ -16,6 +16,8 @@ import {
   Check,
   AlertTriangle,
   Download,
+  Maximize,
+  Minimize,
 } from 'lucide-react';
 import { TrackInfo } from '@cinestream/capacitor-native-player';
 import { nativePlayer } from '../bridge/nativePlayer';
@@ -65,6 +67,7 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
   const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
 
   const absoluteStreamUrl = streamUrl.startsWith('http')
     ? streamUrl
@@ -231,7 +234,39 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
     };
   }, [streamUrl]);
 
+  const toggleFullscreen = () => {
+    wakeOsd();
+    if (!document.fullscreenElement) {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
+  };
+
+  // Auto-enter fullscreen on launch in desktop browsers (Android TV experience)
+  useEffect(() => {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {
+        // Handled silently if browser policy blocks auto-fullscreen without gesture
+      });
+    }
+
+    const onFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
   const handleClose = () => {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
     nativePlayer.stop();
     onClose();
   };
@@ -250,6 +285,37 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
     const newPos = Math.max(0, Math.min(currentTimeMs + deltaSeconds * 1000, durationMs));
     nativePlayer.seekTo(newPos);
   };
+
+  // Keyboard navigation (Living Room / Laptop D-pad / Hotkeys)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      wakeOsd();
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleFullscreen();
+      } else if (e.key === ' ' || e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        togglePlayPause();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        seekRelative(-10);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        seekRelative(10);
+      } else if (e.key === 'Escape' || e.key === 'Backspace') {
+        e.preventDefault();
+        handleClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPlaying, currentTimeMs, durationMs]);
 
   const handleTimelineScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
     wakeOsd();
@@ -539,6 +605,16 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Fullscreen Toggle Button */}
+              <button
+                onClick={toggleFullscreen}
+                title={isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all"
+              >
+                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                <span className="hidden sm:inline">{isFullscreen ? 'Exit' : 'Fullscreen'}</span>
+              </button>
             </div>
 
             {/* Next Episode Button */}

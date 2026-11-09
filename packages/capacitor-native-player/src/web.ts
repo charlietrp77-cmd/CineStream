@@ -31,7 +31,8 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
     video.style.inset = '0';
     video.style.width = '100vw';
     video.style.height = '100vh';
-    video.style.zIndex = '-1';
+    video.style.zIndex = '40';
+    video.style.pointerEvents = 'none';
     video.style.backgroundColor = '#000000';
     video.style.objectFit = 'contain';
 

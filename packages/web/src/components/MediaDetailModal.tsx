@@ -16,6 +16,7 @@ import { useProfileStore } from '../store/useProfileStore';
 import { offlineDownloader } from '../bridge/offlineDownloader';
 import { useOfflineStore } from '../store/useOfflineStore';
 import { ProviderBadge } from './ProviderBadge';
+import { Capacitor } from '@capacitor/core';
 
 interface MediaDetailModalProps {
   item: CatalogItem;
@@ -246,10 +247,16 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     ? streams
     : streams.filter((s) => (s.badges.source || 'Debrid') === providerFilter);
 
+  const isBrowserLosslessAudio = (s: ResolvedStream) => Boolean(s.badges.trueHd || s.badges.dtsHd);
+  const isNativeApp = Capacitor.isNativePlatform();
+
+  const bestStream = !isNativeApp
+    ? (filteredStreams.find((s) => !isBrowserLosslessAudio(s)) || filteredStreams[0] || streams[0])
+    : (filteredStreams[0] || streams[0]);
+
   const handlePlayBest = () => {
-    const streamToPlay = filteredStreams.length > 0 ? filteredStreams[0] : streams[0];
-    if (streamToPlay) {
-      onPlayStream(streamToPlay, item.title, selectedEpisode?.title);
+    if (bestStream) {
+      onPlayStream(bestStream, item.title, selectedEpisode?.title);
     }
   };
 
@@ -334,8 +341,8 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             >
               <Play className="w-4 h-4 fill-black" />
               <span>
-                {streams.length > 0
-                  ? `Play Best (${(filteredStreams.length > 0 ? filteredStreams[0] : streams[0]).badges.source || 'Stream'} • ${(filteredStreams.length > 0 ? filteredStreams[0] : streams[0]).badges.resolution})`
+                {bestStream
+                  ? `Play Best (${bestStream.badges.source || 'Stream'} • ${bestStream.badges.resolution})`
                   : 'Play Best Stream'}
               </span>
             </button>
@@ -556,6 +563,22 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                       {stream.badges.isNasCached && (
                         <span className="bg-amber-500 text-black px-1.5 py-0.5 rounded text-[10px] font-black uppercase">
                           ⚡ Local Gigabit
+                        </span>
+                      )}
+                      {!isNativeApp && isBrowserLosslessAudio(stream) && (
+                        <span
+                          className="bg-purple-900/40 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded text-[10px] font-bold"
+                          title="Lossless TrueHD / DTS audio. Plays in VLC or on Android TV app."
+                        >
+                          🎧 Lossless (VLC / TV)
+                        </span>
+                      )}
+                      {!isNativeApp && !isBrowserLosslessAudio(stream) && (
+                        <span
+                          className="bg-emerald-900/40 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded text-[10px] font-bold"
+                          title="Directly playable in desktop browser"
+                        >
+                          ✓ Browser Ready
                         </span>
                       )}
                     </div>
