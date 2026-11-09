@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 
 // Load .env from project root or current working dir if available
 dotenv.config();
@@ -33,17 +34,23 @@ export interface AppConfig {
   sonarrApiKey: string;
   duckdnsSubdomain: string;
   duckdnsToken: string;
+  backupPath: string;
 }
 
 const defaultPublicUrl = process.env.DUCKDNS_SUBDOMAIN
   ? `https://${process.env.DUCKDNS_SUBDOMAIN.trim()}.duckdns.org`
   : 'http://localhost:3000';
 
+const defaultBackupPath = fs.existsSync('/mnt/backups')
+  ? '/mnt/backups'
+  : path.resolve(process.cwd(), 'backups');
+
 export const config: AppConfig = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
   databasePath: process.env.DATABASE_PATH || path.resolve(process.cwd(), 'data/cinestream.sqlite'),
   nasCachePath: process.env.NAS_CACHE_PATH || path.resolve(process.cwd(), 'nas_media'),
+  backupPath: process.env.BACKUP_PATH || defaultBackupPath,
   nasMaxConcurrentDownloads: parseInt(process.env.NAS_MAX_CONCURRENT_DOWNLOADS || '2', 10),
   nasThreadsPerDownload: parseInt(process.env.NAS_THREADS_PER_DOWNLOAD || '6', 10),
   publicServerUrl: (process.env.PUBLIC_SERVER_URL || defaultPublicUrl).replace(/\/$/, ''),

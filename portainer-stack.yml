@@ -66,6 +66,7 @@ services:
       - PORT=3000
       - DATABASE_PATH=/app/data/cinestream.sqlite
       - NAS_CACHE_PATH=/mnt/nas
+      - BACKUP_PATH=/mnt/backups
       - NAS_MAX_CONCURRENT_DOWNLOADS=${NAS_MAX_CONCURRENT_DOWNLOADS:-2}
       - NAS_THREADS_PER_DOWNLOAD=${NAS_THREADS_PER_DOWNLOAD:-6}
       - DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN:-}
@@ -89,6 +90,7 @@ services:
     volumes:
       - cinestream_data:/app/data
       - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
+      - ${BACKUP_HOST_PATH:-cinestream_backups}:/mnt/backups
       - radarr_config:/arr_configs/radarr
       - sonarr_config:/arr_configs/sonarr
       - sabnzbd_config:/arr_configs/sabnzbd
@@ -116,6 +118,7 @@ services:
     volumes:
       - radarr_config:/config
       - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
+      - ${BACKUP_HOST_PATH:-cinestream_backups}:/mnt/backups
     networks:
       - cinestream_net
 
@@ -132,6 +135,7 @@ services:
     volumes:
       - sonarr_config:/config
       - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
+      - ${BACKUP_HOST_PATH:-cinestream_backups}:/mnt/backups
     networks:
       - cinestream_net
 
@@ -147,6 +151,7 @@ services:
       - TZ=${TZ:-Etc/UTC}
     volumes:
       - prowlarr_config:/config
+      - ${BACKUP_HOST_PATH:-cinestream_backups}:/mnt/backups
     networks:
       - cinestream_net
 
@@ -163,6 +168,7 @@ services:
     volumes:
       - sabnzbd_config:/config
       - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
+      - ${BACKUP_HOST_PATH:-cinestream_backups}:/mnt/backups
     networks:
       - cinestream_net
 
@@ -172,6 +178,8 @@ volumes:
   cinestream_data:
     driver: local
   nas_media_cache:
+    driver: local
+  cinestream_backups:
     driver: local
   radarr_config:
     driver: local

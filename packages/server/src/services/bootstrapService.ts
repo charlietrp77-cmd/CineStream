@@ -157,6 +157,7 @@ port = 8080
 host = 0.0.0.0
 download_dir = /mnt/nas/downloads/incomplete
 complete_dir = /mnt/nas/downloads/complete
+backup_dir = /mnt/backups/sabnzbd
 auto_browser = 0
 `;
 
@@ -327,6 +328,25 @@ priority = 0
         }
       } catch (_) {}
     }
+
+    // C. Automated daily backup configuration
+    try {
+      const bRes = await undiciFetch('http://radarr:7878/api/v3/config/backup', { headers });
+      if (bRes.ok) {
+        const backupCfg: any = await bRes.json();
+        if (backupCfg && backupCfg.folder !== '/mnt/backups/radarr') {
+          backupCfg.folder = '/mnt/backups/radarr';
+          backupCfg.interval = 1;
+          backupCfg.retention = 14;
+          await undiciFetch('http://radarr:7878/api/v3/config/backup', {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(backupCfg),
+          });
+          console.log('[Bootstrap] Configured Radarr automated backup folder to /mnt/backups/radarr');
+        }
+      }
+    } catch (_) {}
   }
 
   private async configureSonarr(apiKey: string, sabKey: string): Promise<void> {
@@ -380,6 +400,25 @@ priority = 0
         }
       } catch (_) {}
     }
+
+    // C. Automated daily backup configuration
+    try {
+      const bRes = await undiciFetch('http://sonarr:8989/api/v3/config/backup', { headers });
+      if (bRes.ok) {
+        const backupCfg: any = await bRes.json();
+        if (backupCfg && backupCfg.folder !== '/mnt/backups/sonarr') {
+          backupCfg.folder = '/mnt/backups/sonarr';
+          backupCfg.interval = 1;
+          backupCfg.retention = 14;
+          await undiciFetch('http://sonarr:8989/api/v3/config/backup', {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(backupCfg),
+          });
+          console.log('[Bootstrap] Configured Sonarr automated backup folder to /mnt/backups/sonarr');
+        }
+      }
+    } catch (_) {}
   }
 
   private tryCreateDir(dir: string): boolean {
@@ -393,3 +432,4 @@ priority = 0
 }
 
 export const bootstrapService = new BootstrapService();
+

@@ -15,13 +15,18 @@ import { streamProxyRoutes } from './routes/streamProxy';
 import { diagnosticsRoutes } from './routes/diagnostics';
 import { providerRoutes } from './routes/providerRoutes';
 import { arrRoutes } from './routes/arrRoutes';
+import { backupRoutes } from './routes/backupRoutes';
 import { bootstrapService } from './services/bootstrapService';
+import { backupService } from './services/backupService';
 
 async function bootstrap() {
   // Execute zero-touch environment & Servarr auto-provisioning
   await bootstrapService.run().catch((err) => {
     console.warn('[Bootstrap] Initial auto-provisioning notice:', err?.message || err);
   });
+
+  // Start automated configuration backup engine
+  backupService.init();
 
   const fastify = Fastify({
     logger: config.nodeEnv === 'development',
@@ -66,6 +71,7 @@ async function bootstrap() {
   await fastify.register(diagnosticsRoutes);
   await fastify.register(providerRoutes);
   await fastify.register(arrRoutes);
+  await fastify.register(backupRoutes);
 
   // Serve static frontend in production
   const webDistPath = path.resolve(__dirname, '../../web/dist');
