@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   Radar,
+  Magnet,
 } from 'lucide-react';
 import { CatalogItem, ResolvedStream, TvSeasonEpisode, NasCacheItem, ArrPushResult } from '../types/api';
 import { useProfileStore } from '../store/useProfileStore';
@@ -901,6 +902,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           episodeNumber: item.type === 'tv' ? (selectedEpisode?.episodeNumber || 1) : undefined,
           targetSizeBytes: targetStream.badges.sizeBytes || 0,
           targetBadges: targetStream.badges,
+          targetMagnetUrl: targetStream.magnetUrl,
         }),
       });
 
@@ -1674,7 +1676,11 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                       }}
                       disabled={pushingArrStreamId === stream.id}
                       className="bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white p-2 rounded-full transition-colors border border-cyan-500/30 disabled:opacity-50"
-                      title={`Search ${item.type === 'tv' ? 'Sonarr' : 'Radarr'} indexers for equivalent release within ±10% size (${stream.badges.sizeText || 'matching'}) and push to queue`}
+                      title={
+                        stream.magnetUrl
+                          ? `Push exact magnet release directly to ${item.type === 'tv' ? 'Sonarr' : 'Radarr'}`
+                          : `Search ${item.type === 'tv' ? 'Sonarr' : 'Radarr'} indexers for equivalent release within ±10% size (${stream.badges.sizeText || 'matching'}) and push to queue`
+                      }
                     >
                       {pushingArrStreamId === stream.id ? (
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -1682,6 +1688,24 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                         <Radar className="w-3.5 h-3.5" />
                       )}
                     </button>
+
+                    {/* Copy Magnet Link / Open torrent client */}
+                    {stream.magnetUrl && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (navigator.clipboard) {
+                            navigator.clipboard.writeText(stream.magnetUrl!);
+                            setNasSuccessMessage('🧲 Magnet link copied to clipboard!');
+                            setTimeout(() => setNasSuccessMessage(null), 4000);
+                          }
+                        }}
+                        className="bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white p-2 rounded-full transition-colors border border-purple-500/30"
+                        title="Copy Magnet link to clipboard"
+                      >
+                        <Magnet className="w-3.5 h-3.5" />
+                      </button>
+                    )}
 
                     {/* Download this specific stream */}
                     <button

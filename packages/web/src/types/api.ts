@@ -75,6 +75,8 @@ export interface ResolvedStream {
   bingeGroup?: string;
   badges: StreamBadges;
   qualityScore: number;
+  infoHash?: string;
+  magnetUrl?: string;
 }
 
 export interface WatchProgress {

@@ -22,6 +22,9 @@ export interface AioRawStream {
   title?: string;
   description?: string;
   url?: string;
+  infoHash?: string;
+  fileIdx?: number;
+  sources?: string[];
   behaviorHints?: {
     bingeGroup?: string;
     filename?: string;
@@ -44,6 +47,8 @@ export interface ResolvedStream {
   bingeGroup?: string;
   badges: StreamBadges;
   qualityScore: number;
+  infoHash?: string;
+  magnetUrl?: string;
 }
 
 const CAM_REGEX = /\b(CAM|HDCAM|CAM-?RIP|TS-?RIP|TELESYNC|HD-?TS|TELE-?CINE|DVD-?SCR|SCREENER|WORKPRINT)\b/i;
@@ -404,6 +409,40 @@ class AioStreamsService {
       const score = computeQualityScore(badges);
       const headers = raw.behaviorHints?.proxyHeaders?.request;
 
+      // Extract infoHash and construct Magnet link if available
+      let infoHash = raw.infoHash;
+      let magnetUrl = '';
+
+      if (!infoHash && raw.url?.startsWith('magnet:')) {
+        magnetUrl = raw.url;
+        const hashMatch = /xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i.exec(raw.url);
+        if (hashMatch) {
+          infoHash = hashMatch[1].toLowerCase();
+        }
+      }
+
+      if (!infoHash && raw.url) {
+        // Check for 40-character SHA1 hex hash in URL path
+        const hashMatch = /\b([a-fA-F0-9]{40})\b/.exec(raw.url);
+        if (hashMatch) {
+          infoHash = hashMatch[1].toLowerCase();
+        }
+      }
+
+      if (infoHash && !magnetUrl) {
+        const trackers = [
+          'udp://tracker.opentrackr.org:1337/announce',
+          'udp://open.stealth.si:80/announce',
+          'udp://tracker.torrent.eu.org:451/announce',
+          'udp://tracker.bittor.pw:1337/announce',
+          'udp://public.popcorn-tracker.org:6969/announce',
+          'udp://tracker.dler.org:6969/announce',
+        ];
+        const trackerParams = trackers.map((t) => `&tr=${encodeURIComponent(t)}`).join('');
+        const dn = encodeURIComponent(raw.behaviorHints?.filename || raw.title || raw.name || 'torrent');
+        magnetUrl = `magnet:?xt=urn:btih:${infoHash}&dn=${dn}${trackerParams}`;
+      }
+
       // Construct stream proxy URL (relative so client always streams from its own origin)
       const urlBase64 = Buffer.from(raw.url).toString('base64url');
       const headersBase64 = headers ? Buffer.from(JSON.stringify(headers)).toString('base64url') : '';
@@ -419,6 +458,8 @@ class AioStreamsService {
         bingeGroup: raw.behaviorHints?.bingeGroup,
         badges,
         qualityScore: score,
+        infoHash,
+        magnetUrl,
       });
     }
 

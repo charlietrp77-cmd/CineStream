@@ -40,3 +40,4 @@ export class AppSettingsService {
 }
 
 export const appSettings = new AppSettingsService();
+

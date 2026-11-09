@@ -202,6 +202,7 @@ export class ArrService {
     year?: string;
     targetSizeBytes: number;
     targetBadges?: Partial<StreamBadges>;
+    targetMagnetUrl?: string;
     selectedGuid?: string;
     selectedIndexerId?: number;
   }): Promise<PushResult> {
@@ -296,6 +297,50 @@ export class ArrService {
         isWithin10Percent: false,
         allCandidatesCount: 0,
       };
+    }
+
+    // 1b. If exact magnet link is available, push directly into Radarr
+    if (params.targetMagnetUrl) {
+      try {
+        const directPushRes = await undiciFetch(`${radarr.url}/api/v3/release/push`, {
+          method: 'POST',
+          headers: {
+            'X-Api-Key': radarr.key,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: params.movieTitle,
+            downloadUrl: params.targetMagnetUrl,
+            protocol: 'torrent',
+            publishDate: new Date().toISOString(),
+          }),
+        });
+        if (directPushRes.ok) {
+          return {
+            success: true,
+            service: 'radarr',
+            matchedRelease: {
+              guid: params.targetMagnetUrl,
+              indexerId: 0,
+              indexer: 'AIOStreams Magnet',
+              title: params.movieTitle,
+              sizeBytes: params.targetSizeBytes,
+              sizeText: formatBytes(params.targetSizeBytes),
+              targetSizeBytes: params.targetSizeBytes,
+              sizeDiffBytes: 0,
+              sizeDiffPercent: 0,
+              isWithin10Percent: true,
+              resolution: params.targetBadges?.resolution || '4K',
+              qualityName: 'Direct Magnet',
+              rejected: false,
+              score: 9999,
+            },
+            message: `Pushed exact stream magnet link directly into Radarr!`,
+            isWithin10Percent: true,
+            allCandidatesCount: 1,
+          };
+        }
+      } catch (_) {}
     }
 
     // 2. Fetch releases from Radarr indexers
@@ -413,6 +458,7 @@ export class ArrService {
     episodeNumber?: number; // Omit for full season pack
     targetSizeBytes: number;
     targetBadges?: Partial<StreamBadges>;
+    targetMagnetUrl?: string;
     selectedGuid?: string;
   }): Promise<PushResult> {
     const sonarr = this.getSonarrConfig();
@@ -506,6 +552,50 @@ export class ArrService {
         isWithin10Percent: false,
         allCandidatesCount: 0,
       };
+    }
+
+    // 1b. If exact magnet link is available, push directly into Sonarr
+    if (params.targetMagnetUrl) {
+      try {
+        const directPushRes = await undiciFetch(`${sonarr.url}/api/v3/release/push`, {
+          method: 'POST',
+          headers: {
+            'X-Api-Key': sonarr.key,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: params.seriesTitle,
+            downloadUrl: params.targetMagnetUrl,
+            protocol: 'torrent',
+            publishDate: new Date().toISOString(),
+          }),
+        });
+        if (directPushRes.ok) {
+          return {
+            success: true,
+            service: 'sonarr',
+            matchedRelease: {
+              guid: params.targetMagnetUrl,
+              indexerId: 0,
+              indexer: 'AIOStreams Magnet',
+              title: params.seriesTitle,
+              sizeBytes: params.targetSizeBytes,
+              sizeText: formatBytes(params.targetSizeBytes),
+              targetSizeBytes: params.targetSizeBytes,
+              sizeDiffBytes: 0,
+              sizeDiffPercent: 0,
+              isWithin10Percent: true,
+              resolution: params.targetBadges?.resolution || '4K',
+              qualityName: 'Direct Magnet',
+              rejected: false,
+              score: 9999,
+            },
+            message: `Pushed exact stream magnet link directly into Sonarr!`,
+            isWithin10Percent: true,
+            allCandidatesCount: 1,
+          };
+        }
+      } catch (_) {}
     }
 
     // 2. Fetch releases from Sonarr
@@ -632,3 +722,4 @@ export class ArrService {
 }
 
 export const arrService = new ArrService();
+

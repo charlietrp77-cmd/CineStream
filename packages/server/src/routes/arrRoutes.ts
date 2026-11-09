@@ -47,6 +47,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       episodeNumber?: number;
       targetSizeBytes: number;
       targetBadges?: Partial<StreamBadges>;
+      targetMagnetUrl?: string;
       selectedGuid?: string;
       selectedIndexerId?: number;
     };
@@ -63,6 +64,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
         year: body.year,
         targetSizeBytes: body.targetSizeBytes || 0,
         targetBadges: body.targetBadges,
+        targetMagnetUrl: body.targetMagnetUrl,
         selectedGuid: body.selectedGuid,
         selectedIndexerId: body.selectedIndexerId,
       });
@@ -75,9 +77,11 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
         episodeNumber: body.episodeNumber,
         targetSizeBytes: body.targetSizeBytes || 0,
         targetBadges: body.targetBadges,
+        targetMagnetUrl: body.targetMagnetUrl,
         selectedGuid: body.selectedGuid,
       });
       return reply.send(result);
     }
   });
 }
+
