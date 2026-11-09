@@ -291,10 +291,10 @@ class AioStreamsService {
       const score = computeQualityScore(badges);
       const headers = raw.behaviorHints?.proxyHeaders?.request;
 
-      // Construct stream proxy URL
+      // Construct stream proxy URL (relative so client always streams from its own origin)
       const urlBase64 = Buffer.from(raw.url).toString('base64url');
       const headersBase64 = headers ? Buffer.from(JSON.stringify(headers)).toString('base64url') : '';
-      const proxyUrl = `${config.publicServerUrl}/proxy/stream?url=${urlBase64}${headersBase64 ? `&headers=${headersBase64}` : ''}`;
+      const proxyUrl = `/proxy/stream?url=${urlBase64}${headersBase64 ? `&headers=${headersBase64}` : ''}`;
 
       results.push({
         id: `stream_${id}_${counter++}`,

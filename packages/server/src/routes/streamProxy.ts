@@ -2,6 +2,16 @@ import { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } f
 import { handleProxyStream } from '../services/proxy';
 
 export async function streamProxyRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions) {
+  fastify.options('/proxy/stream', async (_req: FastifyRequest, reply: FastifyReply) => {
+    return reply
+      .header('Access-Control-Allow-Origin', '*')
+      .header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
+      .header('Access-Control-Allow-Headers', '*')
+      .header('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type')
+      .status(204)
+      .send();
+  });
+
   fastify.get('/proxy/stream', async (req: FastifyRequest, reply: FastifyReply) => {
     const { url: encodedUrl, headers: encodedHeaders } = req.query as {
       url?: string;

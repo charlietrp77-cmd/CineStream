@@ -26,7 +26,6 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
     video.id = 'cinestream-native-video';
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
-    video.crossOrigin = 'anonymous';
     video.style.position = 'fixed';
     video.style.inset = '0';
     video.style.width = '100vw';

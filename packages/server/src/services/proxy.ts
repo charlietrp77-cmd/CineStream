@@ -148,6 +148,10 @@ export async function handleProxyStream(
     reply.raw.setHeader('Content-Range', `bytes ${startByte}-${endByte}/${totalSize}`);
   }
   reply.raw.setHeader('Connection', 'keep-alive');
+  reply.raw.setHeader('Access-Control-Allow-Origin', '*');
+  reply.raw.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  reply.raw.setHeader('Access-Control-Allow-Headers', '*');
+  reply.raw.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type');
 
   const abortController = new AbortController();
   const onClientClose = () => {
