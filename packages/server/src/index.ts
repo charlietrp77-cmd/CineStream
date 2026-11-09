@@ -15,8 +15,14 @@ import { streamProxyRoutes } from './routes/streamProxy';
 import { diagnosticsRoutes } from './routes/diagnostics';
 import { providerRoutes } from './routes/providerRoutes';
 import { arrRoutes } from './routes/arrRoutes';
+import { bootstrapService } from './services/bootstrapService';
 
 async function bootstrap() {
+  // Execute zero-touch environment & Servarr auto-provisioning
+  await bootstrapService.run().catch((err) => {
+    console.warn('[Bootstrap] Initial auto-provisioning notice:', err?.message || err);
+  });
+
   const fastify = Fastify({
     logger: config.nodeEnv === 'development',
     trustProxy: true,

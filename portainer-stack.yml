@@ -1,4 +1,36 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: cinestream-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - cinestream_net
+    depends_on:
+      - cinestream
+
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    container_name: cinestream-duckdns
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+      - SUBDOMAINS=${DUCKDNS_SUBDOMAIN:-}
+      - TOKEN=${DUCKDNS_TOKEN:-}
+      - LOG_FILE=false
+    networks:
+      - cinestream_net
+
   aiostreams:
     image: ghcr.io/viren070/aiostreams:latest
     container_name: cinestream-aiostreams
@@ -6,7 +38,7 @@ services:
     ports:
       - "${AIOSTREAMS_PORT:-3001}:3000"
     environment:
-      - SECRET_KEY=${AIOSTREAMS_SECRET_KEY}
+      - SECRET_KEY=${AIOSTREAMS_SECRET_KEY:-f7b2c9d4e1a803562b4c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a}
       - AIOSTREAMS_AUTH=${AIOSTREAMS_AUTH:-admin:cinestream123}
       - ADDON_PASSWORD=${AIOSTREAMS_ADDON_PASSWORD:-}
       - BASE_URL=${AIOSTREAMS_BASE_URL:-http://aiostreams:3000}
@@ -36,11 +68,17 @@ services:
       - NAS_CACHE_PATH=/mnt/nas
       - NAS_MAX_CONCURRENT_DOWNLOADS=${NAS_MAX_CONCURRENT_DOWNLOADS:-2}
       - NAS_THREADS_PER_DOWNLOAD=${NAS_THREADS_PER_DOWNLOAD:-6}
-      - PUBLIC_SERVER_URL=${PUBLIC_SERVER_URL:-http://192.168.1.50:3000}
+      - DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN:-}
+      - DUCKDNS_TOKEN=${DUCKDNS_TOKEN:-}
+      - PUBLIC_SERVER_URL=${PUBLIC_SERVER_URL:-}
       - AIOSTREAMS_INTERNAL_URL=http://aiostreams:3000
-      - AIOSTREAMS_USER_CONFIG=${AIOSTREAMS_USER_CONFIG}
+      - AIOSTREAMS_USER_CONFIG=${AIOSTREAMS_USER_CONFIG:-}
       - TMDB_API_KEY=${TMDB_API_KEY}
       - DEFAULT_COUNTRY=${DEFAULT_COUNTRY:-ZA}
+      - TORBOX_API_KEY=${TORBOX_API_KEY:-}
+      - PREMIUMIZE_API_KEY=${PREMIUMIZE_API_KEY:-}
+      - EASYNEWS_USERNAME=${EASYNEWS_USERNAME:-}
+      - EASYNEWS_PASSWORD=${EASYNEWS_PASSWORD:-}
       - PROXY_CONNECTIONS=${PROXY_CONNECTIONS:-8}
       - PROXY_CHUNK_SIZE_MB=${PROXY_CHUNK_SIZE_MB:-8}
       - PROXY_READAHEAD_MB=${PROXY_READAHEAD_MB:-64}
@@ -51,6 +89,10 @@ services:
     volumes:
       - cinestream_data:/app/data
       - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
+      - radarr_config:/arr_configs/radarr
+      - sonarr_config:/arr_configs/sonarr
+      - sabnzbd_config:/arr_configs/sabnzbd
+      - aiostreams_data:/aiostreams_data
     networks:
       - cinestream_net
     depends_on:
@@ -138,6 +180,10 @@ volumes:
   prowlarr_config:
     driver: local
   sabnzbd_config:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
     driver: local
 
 networks:

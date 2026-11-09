@@ -31,7 +31,13 @@ export interface AppConfig {
   radarrApiKey: string;
   sonarrUrl: string;
   sonarrApiKey: string;
+  duckdnsSubdomain: string;
+  duckdnsToken: string;
 }
+
+const defaultPublicUrl = process.env.DUCKDNS_SUBDOMAIN
+  ? `https://${process.env.DUCKDNS_SUBDOMAIN.trim()}.duckdns.org`
+  : 'http://localhost:3000';
 
 export const config: AppConfig = {
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -40,7 +46,7 @@ export const config: AppConfig = {
   nasCachePath: process.env.NAS_CACHE_PATH || path.resolve(process.cwd(), 'nas_media'),
   nasMaxConcurrentDownloads: parseInt(process.env.NAS_MAX_CONCURRENT_DOWNLOADS || '2', 10),
   nasThreadsPerDownload: parseInt(process.env.NAS_THREADS_PER_DOWNLOAD || '6', 10),
-  publicServerUrl: (process.env.PUBLIC_SERVER_URL || 'http://localhost:3000').replace(/\/$/, ''),
+  publicServerUrl: (process.env.PUBLIC_SERVER_URL || defaultPublicUrl).replace(/\/$/, ''),
   aiostreamsInternalUrl: (process.env.AIOSTREAMS_INTERNAL_URL || 'http://localhost:3001').replace(/\/$/, ''),
   aiostreamsUserConfig: process.env.AIOSTREAMS_USER_CONFIG || '',
   aiostreamsSecretKey: process.env.AIOSTREAMS_SECRET_KEY || '',
@@ -59,5 +65,7 @@ export const config: AppConfig = {
   radarrApiKey: process.env.RADARR_API_KEY || '',
   sonarrUrl: (process.env.SONARR_URL || '').replace(/\/$/, ''),
   sonarrApiKey: process.env.SONARR_API_KEY || '',
+  duckdnsSubdomain: process.env.DUCKDNS_SUBDOMAIN || '',
+  duckdnsToken: process.env.DUCKDNS_TOKEN || '',
 };
 
