@@ -11,6 +11,7 @@ import {
   FileText,
   ShieldCheck,
   Server,
+  Box,
 } from 'lucide-react';
 import { useProfileStore } from '../store/useProfileStore';
 import { useOfflineStore } from '../store/useOfflineStore';
@@ -27,7 +28,7 @@ interface NavbarProps {
 const ProviderQuotaIcon: React.FC<{ provider: string }> = ({ provider }) => {
   switch (provider) {
     case 'torbox':
-      return <Zap className="w-3.5 h-3.5 text-cyan-400 fill-cyan-400" />;
+      return <Box className="w-3.5 h-3.5 text-emerald-400 stroke-[2.2]" />;
     case 'premiumize':
       return <Cloud className="w-3.5 h-3.5 text-blue-400 fill-blue-400/40" />;
     case 'easynews':
