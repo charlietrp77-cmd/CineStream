@@ -313,6 +313,16 @@ async function fetchAllDebridQuota(apiKey: string): Promise<ProviderQuota | null
   }
 }
 
+function isValidKey(val?: string | null): boolean {
+  if (!val) return false;
+  const s = val.trim();
+  if (!s) return false;
+  if (/^(your[_-]|tb_live_your|sample|placeholder|default)/i.test(s)) {
+    return false;
+  }
+  return true;
+}
+
 class ProviderQuotasService {
   private cache: { quotas: ProviderQuota[]; expiresAt: number } | null = null;
 
@@ -332,11 +342,11 @@ class ProviderQuotasService {
     const adKey = config.alldebridApiKey || aioCreds.alldebridApiKey;
 
     const promises: Promise<ProviderQuota | null>[] = [];
-    if (torboxKey) promises.push(fetchTorboxQuota(torboxKey));
-    if (premiumizeKey) promises.push(fetchPremiumizeQuota(premiumizeKey));
-    if (easynewsUser && easynewsPass) promises.push(fetchEasynewsQuota(easynewsUser, easynewsPass));
-    if (rdKey) promises.push(fetchRealDebridQuota(rdKey));
-    if (adKey) promises.push(fetchAllDebridQuota(adKey));
+    if (isValidKey(torboxKey)) promises.push(fetchTorboxQuota(torboxKey!));
+    if (isValidKey(premiumizeKey)) promises.push(fetchPremiumizeQuota(premiumizeKey!));
+    if (isValidKey(easynewsUser) && isValidKey(easynewsPass)) promises.push(fetchEasynewsQuota(easynewsUser!, easynewsPass!));
+    if (isValidKey(rdKey)) promises.push(fetchRealDebridQuota(rdKey!));
+    if (isValidKey(adKey)) promises.push(fetchAllDebridQuota(adKey!));
 
     if (promises.length === 0) {
       return [];

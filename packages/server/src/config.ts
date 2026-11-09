@@ -37,8 +37,21 @@ export interface AppConfig {
   backupPath: string;
 }
 
-const defaultPublicUrl = process.env.DUCKDNS_SUBDOMAIN
-  ? `https://${process.env.DUCKDNS_SUBDOMAIN.trim()}.duckdns.org`
+function sanitizeSecret(val?: string): string {
+  if (!val) return '';
+  const s = val.trim();
+  if (!s) return '';
+  if (/^(your[_-]|tb_live_your|sample|placeholder|default)/i.test(s)) {
+    return '';
+  }
+  return s;
+}
+
+const rawDuckDns = (process.env.DUCKDNS_SUBDOMAIN || '').trim();
+const isDuckDnsValid = rawDuckDns && !/^(your[_-]|sample|placeholder)/i.test(rawDuckDns);
+
+const defaultPublicUrl = isDuckDnsValid
+  ? `https://${rawDuckDns}.duckdns.org`
   : 'http://localhost:3000';
 
 const defaultBackupPath = fs.existsSync('/mnt/backups')
@@ -55,24 +68,24 @@ export const config: AppConfig = {
   nasThreadsPerDownload: parseInt(process.env.NAS_THREADS_PER_DOWNLOAD || '6', 10),
   publicServerUrl: (process.env.PUBLIC_SERVER_URL || defaultPublicUrl).replace(/\/$/, ''),
   aiostreamsInternalUrl: (process.env.AIOSTREAMS_INTERNAL_URL || 'http://localhost:3001').replace(/\/$/, ''),
-  aiostreamsUserConfig: process.env.AIOSTREAMS_USER_CONFIG || '',
-  aiostreamsSecretKey: process.env.AIOSTREAMS_SECRET_KEY || '',
-  tmdbApiKey: process.env.TMDB_API_KEY || '',
+  aiostreamsUserConfig: sanitizeSecret(process.env.AIOSTREAMS_USER_CONFIG),
+  aiostreamsSecretKey: sanitizeSecret(process.env.AIOSTREAMS_SECRET_KEY),
+  tmdbApiKey: sanitizeSecret(process.env.TMDB_API_KEY),
   defaultCountry: (process.env.DEFAULT_COUNTRY || 'ZA').toUpperCase(),
   proxyConnections: parseInt(process.env.PROXY_CONNECTIONS || '8', 10),
   proxyChunkSizeMb: parseInt(process.env.PROXY_CHUNK_SIZE_MB || '8', 10),
   proxyReadaheadMb: parseInt(process.env.PROXY_READAHEAD_MB || '64', 10),
-  torboxApiKey: process.env.TORBOX_API_KEY || '',
-  premiumizeApiKey: process.env.PREMIUMIZE_API_KEY || '',
-  easynewsUsername: process.env.EASYNEWS_USERNAME || '',
-  easynewsPassword: process.env.EASYNEWS_PASSWORD || '',
-  realdebridApiKey: process.env.REALDEBRID_API_KEY || process.env.RD_API_KEY || '',
-  alldebridApiKey: process.env.ALLDEBRID_API_KEY || '',
+  torboxApiKey: sanitizeSecret(process.env.TORBOX_API_KEY),
+  premiumizeApiKey: sanitizeSecret(process.env.PREMIUMIZE_API_KEY),
+  easynewsUsername: sanitizeSecret(process.env.EASYNEWS_USERNAME),
+  easynewsPassword: sanitizeSecret(process.env.EASYNEWS_PASSWORD),
+  realdebridApiKey: sanitizeSecret(process.env.REALDEBRID_API_KEY || process.env.RD_API_KEY),
+  alldebridApiKey: sanitizeSecret(process.env.ALLDEBRID_API_KEY),
   radarrUrl: (process.env.RADARR_URL || '').replace(/\/$/, ''),
-  radarrApiKey: process.env.RADARR_API_KEY || '',
+  radarrApiKey: sanitizeSecret(process.env.RADARR_API_KEY),
   sonarrUrl: (process.env.SONARR_URL || '').replace(/\/$/, ''),
-  sonarrApiKey: process.env.SONARR_API_KEY || '',
-  duckdnsSubdomain: process.env.DUCKDNS_SUBDOMAIN || '',
-  duckdnsToken: process.env.DUCKDNS_TOKEN || '',
+  sonarrApiKey: sanitizeSecret(process.env.SONARR_API_KEY),
+  duckdnsSubdomain: isDuckDnsValid ? rawDuckDns : '',
+  duckdnsToken: sanitizeSecret(process.env.DUCKDNS_TOKEN),
 };
 
