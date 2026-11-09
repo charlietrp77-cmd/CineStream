@@ -35,6 +35,18 @@ export async function catalogRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     return reply.send(items);
   });
 
+  // Trending endpoint (weekly trending movies or tv series)
+  fastify.get('/api/catalog/trending', async (req: FastifyRequest, reply: FastifyReply) => {
+    const query = req.query as { type?: 'movie' | 'tv' };
+    const type = query.type === 'tv' ? 'tv' : 'movie';
+    const profileId = (req.headers['x-profile-id'] as string) || '';
+    const profile = profileId ? getProfileById(profileId) : undefined;
+    const isKids = profile ? profile.is_kids === 1 : false;
+
+    const items = await tmdb.getTrending(type, isKids);
+    return reply.send(items);
+  });
+
   // Multi-Search (Movies + TV)
   fastify.get('/api/search', async (req: FastifyRequest, reply: FastifyReply) => {
     const { q } = req.query as { q?: string };

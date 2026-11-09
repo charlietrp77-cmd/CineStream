@@ -211,6 +211,21 @@ class TmdbService {
     return enriched.filter((item): item is CatalogItem => item !== null);
   }
 
+  public async getTrending(type: 'movie' | 'tv', isKids?: boolean): Promise<CatalogItem[]> {
+    let endpoint = `/trending/${type}/week`;
+    if (isKids) {
+      endpoint = `/discover/${type}?sort_by=popularity.desc&certification_country=US&certification.lte=PG&without_genres=27,53,80`;
+    }
+    const data = await this.fetchTmdb<any>(endpoint, 1800);
+    const results = (data?.results || []).slice(0, 20);
+
+    const enriched = await Promise.all(
+      results.map((item: any) => this.enrichItem(type, item))
+    );
+
+    return enriched.filter((item): item is CatalogItem => item !== null);
+  }
+
   public async getNewReleases(isKids?: boolean): Promise<CatalogItem[]> {
     const today = new Date().toISOString().split('T')[0];
     let endpoint = `/discover/movie?with_release_type=4|5&primary_release_date.lte=${today}&sort_by=primary_release_date.desc&vote_count.gte=15`;

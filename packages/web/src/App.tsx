@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Play, Sparkles, Film, Tv, Plus } from 'lucide-react';
 import { useSpatialNavInit } from './hooks/useSpatialNav';
 import { useProfileStore } from './store/useProfileStore';
 import { useOfflineStore } from './store/useOfflineStore';
@@ -43,6 +44,8 @@ export const App: React.FC = () => {
 
   // Rows State
   const [newReleases, setNewReleases] = useState<CatalogItem[]>([]);
+  const [trendingMovies, setTrendingMovies] = useState<CatalogItem[]>([]);
+  const [trendingSeries, setTrendingSeries] = useState<CatalogItem[]>([]);
   const [continueWatching, setContinueWatching] = useState<WatchProgress[]>([]);
   const [myListItems, setMyListItems] = useState<CatalogItem[]>([]);
   const [nasCachedItems, setNasCachedItems] = useState<CatalogItem[]>([]);
@@ -60,6 +63,8 @@ export const App: React.FC = () => {
 
     fetchTopTen();
     fetchNewReleases();
+    fetchTrendingMovies();
+    fetchTrendingSeries();
     fetchContinueWatching();
     fetchMyList();
     fetchNasJobs();
@@ -69,6 +74,30 @@ export const App: React.FC = () => {
     if (!activeProfile || isGateOpen) return;
     fetchTopTen();
   }, [topTenRegion, topTenProvider, topTenMediaType]);
+
+  const fetchTrendingMovies = async () => {
+    try {
+      const res = await fetch('/api/catalog/trending?type=movie', {
+        headers: { 'X-Profile-Id': activeProfile?.id || '' },
+      });
+      if (res.ok) {
+        const data: CatalogItem[] = await res.json();
+        setTrendingMovies(data);
+      }
+    } catch (_) {}
+  };
+
+  const fetchTrendingSeries = async () => {
+    try {
+      const res = await fetch('/api/catalog/trending?type=tv', {
+        headers: { 'X-Profile-Id': activeProfile?.id || '' },
+      });
+      if (res.ok) {
+        const data: CatalogItem[] = await res.json();
+        setTrendingSeries(data);
+      }
+    } catch (_) {}
+  };
 
   const fetchTopTen = async () => {
     try {
@@ -290,6 +319,40 @@ export const App: React.FC = () => {
     );
   }
 
+  const handleSelectTab = (tab: string) => {
+    setActiveTab(tab);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (tab === 'movies') {
+      setTopTenMediaType('movie');
+    } else if (tab === 'series') {
+      setTopTenMediaType('tv');
+    }
+  };
+
+  let currentHero = heroItem;
+  if (activeTab === 'movies') {
+    currentHero = (topTenMediaType === 'movie' && topTenItems[0]) || trendingMovies[0] || heroItem;
+  } else if (activeTab === 'series') {
+    currentHero = (topTenMediaType === 'tv' && topTenItems[0]) || trendingSeries[0] || heroItem;
+  } else if (activeTab === 'new') {
+    currentHero = newReleases[0] || heroItem;
+  } else if (activeTab === 'mylist') {
+    currentHero = myListItems[0] || heroItem;
+  }
+
+  const movieCw = continueWatchingCatalog.filter((c) => c.type === 'movie');
+  const seriesCw = continueWatchingCatalog.filter((c) => c.type === 'tv');
+
+  const movieNas = nasCachedItems.filter((n) => n.type === 'movie');
+  const seriesNas = nasCachedItems.filter((n) => n.type === 'tv');
+
+  const movieMyList = myListItems.filter((m) => m.type === 'movie');
+  const seriesMyList = myListItems.filter((m) => m.type === 'tv');
+
+  const uhdReleases = newReleases.filter(
+    (r) => r.qualityBadge?.includes('4K') || r.qualityBadge?.includes('DV') || r.qualityBadge?.includes('Vision')
+  );
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white overflow-x-hidden pb-20">
       {/* Top Navbar */}
@@ -298,74 +361,341 @@ export const App: React.FC = () => {
           onOpenSearch={() => setIsSearchOpen(true)}
           onOpenDownloads={() => setIsDownloadsOpen(true)}
           activeTab={activeTab}
-          onSelectTab={setActiveTab}
+          onSelectTab={handleSelectTab}
           activeDownloadsCount={activeDownloadsCount}
         />
       )}
 
       {/* Main Content */}
       <main>
-        {/* Hero Billboard */}
-        <HeroBillboard
-          item={heroItem}
-          onPlay={(item) => setSelectedModalItem(item)}
-          onMoreInfo={(item) => setSelectedModalItem(item)}
-        />
-
-        <div className="-mt-16 sm:-mt-24 relative z-20 space-y-6">
-          {/* Continue Watching Row */}
-          {continueWatchingCatalog.length > 0 && (
-            <VirtualPosterRow
-              title="Continue Watching"
-              items={continueWatchingCatalog}
-              onSelect={(item) => setSelectedModalItem(item)}
-              progressMap={progressMap}
+        {/* Render for My List Tab when Empty */}
+        {activeTab === 'mylist' && myListItems.length === 0 ? (
+          <div className="pt-36 px-4 sm:px-12 text-center space-y-5 max-w-lg mx-auto min-h-[60vh] flex flex-col items-center justify-center">
+            <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center text-gray-400">
+              <Plus className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-black">Your list is empty</h2>
+            <p className="text-sm text-gray-400 leading-relaxed">
+              Explore movies and TV series across our catalog and tap &quot;Add to List&quot; to save them for quick access.
+            </p>
+            <button
+              onClick={() => handleSelectTab('home')}
+              className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-sm rounded shadow transition-all"
+            >
+              Explore Catalog
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Hero Billboard */}
+            <HeroBillboard
+              item={currentHero}
+              onPlay={(item) => setSelectedModalItem(item)}
+              onMoreInfo={(item) => setSelectedModalItem(item)}
             />
-          )}
 
-          {/* Top 10 Row */}
-          {topTenItems.length > 0 && (
-            <TopTenRow
-              items={topTenItems}
-              region={topTenRegion}
-              onRegionChange={setTopTenRegion}
-              provider={topTenProvider}
-              onProviderChange={setTopTenProvider}
-              mediaType={topTenMediaType}
-              onMediaTypeChange={setTopTenMediaType}
-              onSelect={(item) => setSelectedModalItem(item)}
-            />
-          )}
+            <div className="-mt-16 sm:-mt-24 relative z-20 space-y-6">
+              {/* HOME TAB */}
+              {activeTab === 'home' && (
+                <>
+                  {continueWatchingCatalog.length > 0 && (
+                    <VirtualPosterRow
+                      title="Continue Watching"
+                      items={continueWatchingCatalog}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                      progressMap={progressMap}
+                    />
+                  )}
 
-          {/* Verified Non-CAM New Releases */}
-          {newReleases.length > 0 && (
-            <VirtualPosterRow
-              title="Verified New Releases (Non-CAM)"
-              subtitle="Guaranteed 1080p & 4K BluRay / WEB-DL streams verified"
-              items={newReleases}
-              onSelect={(item) => setSelectedModalItem(item)}
-            />
-          )}
+                  {topTenItems.length > 0 && (
+                    <TopTenRow
+                      items={topTenItems}
+                      region={topTenRegion}
+                      onRegionChange={setTopTenRegion}
+                      provider={topTenProvider}
+                      onProviderChange={setTopTenProvider}
+                      mediaType={topTenMediaType}
+                      onMediaTypeChange={setTopTenMediaType}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
 
-          {/* Cached on Local NAS */}
-          {nasCachedItems.length > 0 && (
-            <VirtualPosterRow
-              title="⚡ Cached on Local NAS"
-              subtitle="Instantly playable from your home server over Gigabit LAN"
-              items={nasCachedItems}
-              onSelect={(item) => setSelectedModalItem(item)}
-            />
-          )}
+                  {newReleases.length > 0 && (
+                    <VirtualPosterRow
+                      title="Verified New Releases (Non-CAM)"
+                      subtitle="Guaranteed 1080p & 4K BluRay / WEB-DL streams verified"
+                      items={newReleases}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
 
-          {/* My List */}
-          {myListItems.length > 0 && (
-            <VirtualPosterRow
-              title="My List"
-              items={myListItems}
-              onSelect={(item) => setSelectedModalItem(item)}
-            />
-          )}
-        </div>
+                  {nasCachedItems.length > 0 && (
+                    <VirtualPosterRow
+                      title="⚡ Cached on Local NAS"
+                      subtitle="Instantly playable from your home server over Gigabit LAN"
+                      items={nasCachedItems}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+
+                  {myListItems.length > 0 && (
+                    <VirtualPosterRow
+                      title="My List"
+                      items={myListItems}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* MOVIES TAB */}
+              {activeTab === 'movies' && (
+                <>
+                  {movieCw.length > 0 && (
+                    <VirtualPosterRow
+                      title="Continue Watching Movies"
+                      items={movieCw}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                      progressMap={progressMap}
+                    />
+                  )}
+
+                  {topTenItems.length > 0 && (
+                    <TopTenRow
+                      items={topTenItems}
+                      region={topTenRegion}
+                      onRegionChange={setTopTenRegion}
+                      provider={topTenProvider}
+                      onProviderChange={setTopTenProvider}
+                      mediaType="movie"
+                      onMediaTypeChange={() => {}}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+
+                  {newReleases.length > 0 && (
+                    <VirtualPosterRow
+                      title="Verified New Releases (Non-CAM)"
+                      subtitle="Guaranteed 1080p & 4K BluRay / WEB-DL releases"
+                      items={newReleases}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+
+                  {trendingMovies.length > 0 && (
+                    <VirtualPosterRow
+                      title="Trending Movies This Week"
+                      subtitle="Popular theatrical and streaming films"
+                      items={trendingMovies}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+
+                  {movieNas.length > 0 && (
+                    <VirtualPosterRow
+                      title="⚡ Cached Movies on Local NAS"
+                      subtitle="Gigabit LAN Direct Playback"
+                      items={movieNas}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+
+                  {movieMyList.length > 0 && (
+                    <VirtualPosterRow
+                      title="My Saved Movies"
+                      items={movieMyList}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* TV SERIES TAB */}
+              {activeTab === 'series' && (
+                <>
+                  {seriesCw.length > 0 && (
+                    <VirtualPosterRow
+                      title="Continue Watching Series"
+                      items={seriesCw}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                      progressMap={progressMap}
+                    />
+                  )}
+
+                  {topTenItems.length > 0 && (
+                    <TopTenRow
+                      items={topTenItems}
+                      region={topTenRegion}
+                      onRegionChange={setTopTenRegion}
+                      provider={topTenProvider}
+                      onProviderChange={setTopTenProvider}
+                      mediaType="tv"
+                      onMediaTypeChange={() => {}}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+
+                  {trendingSeries.length > 0 && (
+                    <VirtualPosterRow
+                      title="Trending TV Series"
+                      subtitle="Most-watched TV series this week"
+                      items={trendingSeries}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+
+                  {seriesNas.length > 0 && (
+                    <VirtualPosterRow
+                      title="⚡ Cached Series on Local NAS"
+                      subtitle="Gigabit LAN Direct Playback"
+                      items={seriesNas}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+
+                  {seriesMyList.length > 0 && (
+                    <VirtualPosterRow
+                      title="My Saved TV Shows"
+                      items={seriesMyList}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* NEW & VERIFIED TAB */}
+              {activeTab === 'new' && (
+                <>
+                  <div className="px-4 sm:px-12 py-2">
+                    <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-red-500" />
+                      <span>Verified High-Quality Releases (Non-CAM)</span>
+                    </h2>
+                    <p className="text-xs sm:text-sm text-gray-400 mt-1 max-w-3xl">
+                      Every title here is verified against high-speed Usenet and Debrid backends to guarantee authentic 4K UHD, HDR, Dolby Vision, and lossless multi-channel surround sound.
+                    </p>
+                  </div>
+
+                  {uhdReleases.length > 0 && (
+                    <VirtualPosterRow
+                      title="🔥 Verified 4K UHD & Dolby Vision"
+                      subtitle="Pristine 2160p releases verified non-cam"
+                      items={uhdReleases}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+
+                  {newReleases.length > 0 && (
+                    <VirtualPosterRow
+                      title="All Verified Non-CAM Releases"
+                      subtitle="Full catalog of releases verified ready for playback"
+                      items={newReleases}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                    />
+                  )}
+
+                  {/* Complete Responsive Grid for New & Verified */}
+                  {newReleases.length > 0 && (
+                    <div className="px-4 sm:px-12 pt-6 space-y-4">
+                      <h3 className="text-lg font-bold text-gray-200">Browse Verified Catalog</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        {newReleases.map((item) => (
+                          <div
+                            key={item.imdbId || item.id}
+                            onClick={() => setSelectedModalItem(item)}
+                            className="group relative rounded-lg overflow-hidden bg-[#181818] aspect-[2/3] cursor-pointer border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105"
+                          >
+                            {item.posterUrl ? (
+                              <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center p-3 text-center text-xs font-bold text-gray-300">
+                                {item.title}
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <div className="bg-red-600 p-3 rounded-full shadow-lg">
+                                <Play className="w-5 h-5 fill-white text-white" />
+                              </div>
+                            </div>
+                            <div className="absolute top-2 left-2 z-10">
+                              {item.qualityBadge && (
+                                <span className="bg-black/80 backdrop-blur-sm text-white px-1.5 py-0.5 rounded text-[9px] font-bold border border-white/20">
+                                  {item.qualityBadge}
+                                </span>
+                              )}
+                            </div>
+                            <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black via-black/80 to-transparent">
+                              <span className="text-xs font-bold text-white truncate block">{item.title}</span>
+                              <span className="text-[10px] text-gray-400 uppercase font-semibold">
+                                {item.releaseDate ? item.releaseDate.split('-')[0] : 'Movie'}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* MY LIST TAB */}
+              {activeTab === 'mylist' && myListItems.length > 0 && (
+                <div className="px-4 sm:px-12 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+                        My Saved List ({myListItems.length})
+                      </h2>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Titles you have bookmarked across all devices
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {myListItems.map((item) => (
+                      <div
+                        key={item.imdbId || item.id}
+                        onClick={() => setSelectedModalItem(item)}
+                        className="group relative rounded-lg overflow-hidden bg-[#181818] aspect-[2/3] cursor-pointer border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105"
+                      >
+                        {item.posterUrl ? (
+                          <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center p-3 text-center text-xs font-bold text-gray-300">
+                            {item.title}
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <div className="bg-red-600 p-3 rounded-full shadow-lg">
+                            <Play className="w-5 h-5 fill-white text-white" />
+                          </div>
+                        </div>
+                        <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black via-black/80 to-transparent">
+                          <span className="text-xs font-bold text-white truncate block">{item.title}</span>
+                          <span className="text-[10px] text-gray-400 uppercase font-semibold">
+                            {item.type === 'tv' ? 'TV Series' : 'Movie'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {continueWatchingCatalog.length > 0 && (
+                    <div className="pt-6">
+                      <VirtualPosterRow
+                        title="Continue Watching"
+                        items={continueWatchingCatalog}
+                        onSelect={(item) => setSelectedModalItem(item)}
+                        progressMap={progressMap}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </main>
 
       {/* Media Detail Modal */}
