@@ -52,7 +52,7 @@ export function isCamStream(text: string): boolean {
   return CAM_REGEX.test(text);
 }
 
-export function parseStreamBadges(stream: AioRawStream): StreamBadges {
+export function parseStreamBadges(stream: AioRawStream, isEpisode: boolean = false): StreamBadges {
   const combined = [
     stream.name || '',
     stream.title || '',
@@ -125,32 +125,86 @@ export function parseStreamBadges(stream: AioRawStream): StreamBadges {
     sizeText = gb >= 1 ? `${gb.toFixed(1)} GB` : `${(gb * 1024).toFixed(0)} MB`;
   }
 
+  // Check if stream is a Season Pack (contains multiple episodes)
+  const isSeasonPack = isEpisode && /\b(complete\s*season|season\s*\d+\s*(?:complete|batch)?|s\d+\s*complete|s\d+-s\d+)\b/i.test(combined);
+
   // Micro-encode detection (groups known for high compression / 2-3 Mbps re-encodes)
-  const isMicroGroup = /\b(yts|yify|psa|galaxyrg|pahe|qxr|rmteam|megusta)\b/i.test(combined);
+  const isMicroGroup = /\b(yts|yify|psa|galaxyrg|galaxytv|pahe|qxr|rmteam|megusta|eztv)\b/i.test(combined);
   if (!sizeBytes && isMicroGroup) {
-    sizeText = resolution === '4K' ? '~3.5 GB (Micro)' : '~1.2 GB (Micro)';
-    sizeBytes = resolution === '4K' ? 3.5 * 1024 * 1024 * 1024 : 1.2 * 1024 * 1024 * 1024;
+    if (isEpisode) {
+      sizeText = resolution === '4K' ? '~900 MB (Micro)' : '~350 MB (Micro)';
+      sizeBytes = resolution === '4K' ? 900 * 1024 * 1024 : 350 * 1024 * 1024;
+    } else {
+      sizeText = resolution === '4K' ? '~3.5 GB (Micro)' : '~1.2 GB (Micro)';
+      sizeBytes = resolution === '4K' ? 3.5 * 1024 * 1024 * 1024 : 1.2 * 1024 * 1024 * 1024;
+    }
   }
 
-  // Size tier classification (aligning with TRaSH Guides bitrates)
+  // Size tier classification (aligning with TRaSH Guides: Sonarr TV vs Radarr Movies)
   let sizeTier: 'micro' | 'compact' | 'high' | 'remux' = 'compact';
-  if (remux || (sizeBytes && sizeBytes >= 40 * 1024 * 1024 * 1024)) {
-    sizeTier = 'remux';
-  } else if (
-    isMicroGroup ||
-    (sizeBytes &&
-      ((resolution === '4K' && sizeBytes < 6 * 1024 * 1024 * 1024) ||
-        (resolution === '1080p' && sizeBytes < 2 * 1024 * 1024 * 1024)))
-  ) {
-    sizeTier = 'micro';
-  } else if (
-    sizeBytes &&
-    ((resolution === '4K' && sizeBytes >= 16 * 1024 * 1024 * 1024) ||
-      (resolution === '1080p' && sizeBytes >= 5 * 1024 * 1024 * 1024))
-  ) {
-    sizeTier = 'high';
+
+  if (isEpisode) {
+    if (isSeasonPack) {
+      // Full Season Pack (~8-12 episodes)
+      if (remux || (sizeBytes && sizeBytes >= 80 * 1024 * 1024 * 1024)) {
+        sizeTier = 'remux';
+      } else if (
+        isMicroGroup ||
+        (sizeBytes &&
+          ((resolution === '4K' && sizeBytes < 12 * 1024 * 1024 * 1024) ||
+            (resolution === '1080p' && sizeBytes < 4 * 1024 * 1024 * 1024)))
+      ) {
+        sizeTier = 'micro';
+      } else if (
+        sizeBytes &&
+        ((resolution === '4K' && sizeBytes >= 35 * 1024 * 1024 * 1024) ||
+          (resolution === '1080p' && sizeBytes >= 15 * 1024 * 1024 * 1024))
+      ) {
+        sizeTier = 'high';
+      } else {
+        sizeTier = 'compact';
+      }
+    } else {
+      // Single TV Episode (typically 25-60 mins)
+      if (remux || (sizeBytes && sizeBytes >= 14 * 1024 * 1024 * 1024)) {
+        sizeTier = 'remux';
+      } else if (
+        isMicroGroup ||
+        (sizeBytes &&
+          ((resolution === '4K' && sizeBytes < 1.4 * 1024 * 1024 * 1024) ||
+            (resolution === '1080p' && sizeBytes < 450 * 1024 * 1024)))
+      ) {
+        sizeTier = 'micro';
+      } else if (
+        sizeBytes &&
+        ((resolution === '4K' && sizeBytes >= 4 * 1024 * 1024 * 1024) ||
+          (resolution === '1080p' && sizeBytes >= 1.8 * 1024 * 1024 * 1024))
+      ) {
+        sizeTier = 'high';
+      } else {
+        sizeTier = 'compact';
+      }
+    }
   } else {
-    sizeTier = 'compact';
+    // Feature Movie (typically 90-180 mins)
+    if (remux || (sizeBytes && sizeBytes >= 40 * 1024 * 1024 * 1024)) {
+      sizeTier = 'remux';
+    } else if (
+      isMicroGroup ||
+      (sizeBytes &&
+        ((resolution === '4K' && sizeBytes < 6 * 1024 * 1024 * 1024) ||
+          (resolution === '1080p' && sizeBytes < 2 * 1024 * 1024 * 1024)))
+    ) {
+      sizeTier = 'micro';
+    } else if (
+      sizeBytes &&
+      ((resolution === '4K' && sizeBytes >= 16 * 1024 * 1024 * 1024) ||
+        (resolution === '1080p' && sizeBytes >= 5 * 1024 * 1024 * 1024))
+    ) {
+      sizeTier = 'high';
+    } else {
+      sizeTier = 'compact';
+    }
   }
 
   return {
@@ -345,7 +399,8 @@ class AioStreamsService {
         continue;
       }
 
-      const badges = parseStreamBadges(raw);
+      const isEpisode = stremioType === 'series' || id.includes(':');
+      const badges = parseStreamBadges(raw, isEpisode);
       const score = computeQualityScore(badges);
       const headers = raw.behaviorHints?.proxyHeaders?.request;
 
