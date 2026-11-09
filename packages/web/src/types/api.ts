@@ -160,3 +160,18 @@ export interface OfflineMediaItem {
   downloadedAt: number;
 }
 
+export interface ProviderQuota {
+  provider: 'torbox' | 'premiumize' | 'easynews' | 'realdebrid' | 'alldebrid';
+  name: string;
+  shortName: string;
+  status: 'active' | 'warning' | 'expired' | 'error';
+  plan?: string;
+  usedBytes?: number;
+  totalBytes?: number;
+  remainingBytes?: number;
+  remainingGbText: string;
+  percentUsed?: number;
+  daysRemaining?: number;
+  expiresAt?: string;
+}
+

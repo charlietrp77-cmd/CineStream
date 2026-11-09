@@ -11,9 +11,15 @@ import {
   AlertCircle,
   WifiOff,
   Download,
+  Zap,
+  Cloud,
+  FileText,
+  ShieldCheck,
+  Server,
 } from 'lucide-react';
-import { DiskSpaceInfo, NasCacheItem, OfflineMediaItem, ResolvedStream } from '../types/api';
+import { DiskSpaceInfo, NasCacheItem, OfflineMediaItem, ProviderQuota, ResolvedStream } from '../types/api';
 import { useOfflineStore } from '../store/useOfflineStore';
+import { useProfileStore } from '../store/useProfileStore';
 import { offlineDownloader } from '../bridge/offlineDownloader';
 
 interface DownloadsDrawerProps {
@@ -32,15 +38,18 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
   const [activeTab, setActiveTab] = useState<'nas' | 'device'>('nas');
   const [diskSpace, setDiskSpace] = useState<DiskSpaceInfo | null>(null);
   const [nasJobs, setNasJobs] = useState<NasCacheItem[]>([]);
+  const [providerQuotas, setProviderQuotas] = useState<ProviderQuota[]>([]);
 
+  const { activeProfile } = useProfileStore();
   const { offlineItems, removeItem: removeOfflineItem, saveItem } = useOfflineStore();
 
-  // Load disk space & setup WebSocket
+  // Load disk space, provider quotas & setup WebSocket
   useEffect(() => {
     if (!isOpen) return;
 
     fetchDiskSpace();
     fetchNasJobs();
+    fetchProviderQuotas();
 
     // Setup live WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -64,7 +73,19 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
       ws.close();
       unsubscribeDownloader();
     };
-  }, [isOpen]);
+  }, [isOpen, activeProfile?.id]);
+
+  const fetchProviderQuotas = async () => {
+    try {
+      const res = await fetch('/api/providers/quotas', {
+        headers: activeProfile?.id ? { 'X-Profile-Id': activeProfile.id } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProviderQuotas(data);
+      }
+    } catch (_) {}
+  };
 
   const fetchDiskSpace = async () => {
     try {
@@ -209,6 +230,71 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                       }`}
                       style={{ width: `${diskUsedPercent}%` }}
                     />
+                  </div>
+                </div>
+              )}
+
+              {/* Cloud Provider Quotas (TorBox, Premiumize, Easynews, RealDebrid, AllDebrid) */}
+              {providerQuotas.length > 0 && (
+                <div className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                      Debrid & Usenet Provider Quotas
+                    </span>
+                    <span className="text-[11px] text-gray-400">Monthly / Fair-Use</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {providerQuotas.map((q) => (
+                      <div
+                        key={q.provider}
+                        className="p-3 bg-black/40 rounded-lg border border-white/5 space-y-2 text-xs"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {q.provider === 'torbox' && <Zap className="w-4 h-4 text-cyan-400 fill-cyan-400" />}
+                            {q.provider === 'premiumize' && <Cloud className="w-4 h-4 text-blue-400 fill-blue-400/40" />}
+                            {q.provider === 'easynews' && <FileText className="w-4 h-4 text-amber-400" />}
+                            {q.provider === 'realdebrid' && <ShieldCheck className="w-4 h-4 text-emerald-400" />}
+                            {q.provider === 'alldebrid' && <Server className="w-4 h-4 text-orange-400" />}
+                            <div>
+                              <p className="font-bold text-gray-200">{q.name}</p>
+                              {q.plan && <p className="text-[10px] text-gray-400">{q.plan}</p>}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-white">{q.remainingGbText}</p>
+                            <p className="text-[10px] text-gray-400">
+                              {q.daysRemaining !== undefined ? `${q.daysRemaining}d left` : 'remaining'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {q.percentUsed !== undefined && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[10px] text-gray-400">
+                              <span>Used: {q.percentUsed}%</span>
+                              {q.totalBytes && (
+                                <span>{Math.round(q.totalBytes / (1024 * 1024 * 1024))} GB cap</span>
+                              )}
+                            </div>
+                            <div className="h-1.5 w-full bg-gray-800 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all ${
+                                  q.percentUsed > 90
+                                    ? 'bg-red-500'
+                                    : q.percentUsed > 75
+                                    ? 'bg-amber-500'
+                                    : 'bg-cyan-500'
+                                }`}
+                                style={{ width: `${q.percentUsed}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

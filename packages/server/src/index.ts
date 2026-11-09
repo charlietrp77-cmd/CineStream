@@ -13,6 +13,7 @@ import { nasRoutes } from './routes/nas';
 import { progressRoutes } from './routes/progress';
 import { streamProxyRoutes } from './routes/streamProxy';
 import { diagnosticsRoutes } from './routes/diagnostics';
+import { providerRoutes } from './routes/providerRoutes';
 
 async function bootstrap() {
   const fastify = Fastify({
@@ -56,6 +57,7 @@ async function bootstrap() {
   await fastify.register(progressRoutes);
   await fastify.register(streamProxyRoutes);
   await fastify.register(diagnosticsRoutes);
+  await fastify.register(providerRoutes);
 
   // Serve static frontend in production
   const webDistPath = path.resolve(__dirname, '../../web/dist');

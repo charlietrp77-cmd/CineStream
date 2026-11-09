@@ -1,7 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Download, HardDrive, WifiOff, ChevronDown, User } from 'lucide-react';
+import {
+  Search,
+  Download,
+  HardDrive,
+  WifiOff,
+  ChevronDown,
+  User,
+  Zap,
+  Cloud,
+  FileText,
+  ShieldCheck,
+  Server,
+} from 'lucide-react';
 import { useProfileStore } from '../store/useProfileStore';
 import { useOfflineStore } from '../store/useOfflineStore';
+import { ProviderQuota } from '../types/api';
 
 interface NavbarProps {
   onOpenSearch: () => void;
@@ -10,6 +23,23 @@ interface NavbarProps {
   onSelectTab: (tab: string) => void;
   activeDownloadsCount: number;
 }
+
+const ProviderQuotaIcon: React.FC<{ provider: string }> = ({ provider }) => {
+  switch (provider) {
+    case 'torbox':
+      return <Zap className="w-3.5 h-3.5 text-cyan-400 fill-cyan-400" />;
+    case 'premiumize':
+      return <Cloud className="w-3.5 h-3.5 text-blue-400 fill-blue-400/40" />;
+    case 'easynews':
+      return <FileText className="w-3.5 h-3.5 text-amber-400" />;
+    case 'realdebrid':
+      return <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />;
+    case 'alldebrid':
+      return <Server className="w-3.5 h-3.5 text-orange-400" />;
+    default:
+      return <Cloud className="w-3.5 h-3.5 text-gray-400" />;
+  }
+};
 
 export const Navbar: React.FC<NavbarProps> = ({
   onOpenSearch,
@@ -22,6 +52,29 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { isOfflineMode, toggleOfflineMode } = useOfflineStore();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [providerQuotas, setProviderQuotas] = useState<ProviderQuota[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchQuotas = async () => {
+      try {
+        const res = await fetch('/api/providers/quotas', {
+          headers: activeProfile?.id ? { 'X-Profile-Id': activeProfile.id } : {},
+        });
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          setProviderQuotas(data);
+        }
+      } catch (_) {}
+    };
+
+    fetchQuotas();
+    const interval = setInterval(fetchQuotas, 60000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeProfile?.id]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -74,6 +127,23 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Center: Provider Quotas */}
+        {providerQuotas.length > 0 && (
+          <div className="hidden sm:flex items-center gap-2 bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 shadow-inner">
+            {providerQuotas.map((q) => (
+              <div
+                key={q.provider}
+                onClick={onOpenDownloads}
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-white/10 transition-colors select-none"
+                title={`${q.name}: ${q.remainingGbText} remaining${q.plan ? ` (${q.plan})` : ''} - Click to open storage details`}
+              >
+                <ProviderQuotaIcon provider={q.provider} />
+                <span className="text-[11px] font-bold text-gray-200">{q.remainingGbText}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Right Controls */}
         <div className="flex items-center gap-4 sm:gap-6">

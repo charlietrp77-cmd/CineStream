@@ -852,7 +852,11 @@ export const App: React.FC = () => {
       {selectedModalItem && (
         <MediaDetailModal
           item={selectedModalItem}
-          onClose={() => setSelectedModalItem(null)}
+          onClose={() => {
+            setSelectedModalItem(null);
+            fetchContinueWatching();
+            fetchMyList();
+          }}
           onPlayStream={(stream: ResolvedStream, mediaTitle: string, epTitle?: string) => {
             setSelectedModalItem(null);
             setPlayerState({
@@ -919,7 +923,10 @@ export const App: React.FC = () => {
       {playerState && (
         <PlayerOverlay
           {...playerState}
-          onClose={() => setPlayerState(null)}
+          onClose={() => {
+            setPlayerState(null);
+            fetchContinueWatching();
+          }}
         />
       )}
     </div>

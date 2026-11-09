@@ -21,6 +21,12 @@ export interface AppConfig {
   proxyConnections: number;
   proxyChunkSizeMb: number;
   proxyReadaheadMb: number;
+  torboxApiKey: string;
+  premiumizeApiKey: string;
+  easynewsUsername: string;
+  easynewsPassword: string;
+  realdebridApiKey: string;
+  alldebridApiKey: string;
 }
 
 export const config: AppConfig = {
@@ -39,5 +45,11 @@ export const config: AppConfig = {
   proxyConnections: parseInt(process.env.PROXY_CONNECTIONS || '8', 10),
   proxyChunkSizeMb: parseInt(process.env.PROXY_CHUNK_SIZE_MB || '8', 10),
   proxyReadaheadMb: parseInt(process.env.PROXY_READAHEAD_MB || '64', 10),
+  torboxApiKey: process.env.TORBOX_API_KEY || '',
+  premiumizeApiKey: process.env.PREMIUMIZE_API_KEY || '',
+  easynewsUsername: process.env.EASYNEWS_USERNAME || '',
+  easynewsPassword: process.env.EASYNEWS_PASSWORD || '',
+  realdebridApiKey: process.env.REALDEBRID_API_KEY || process.env.RD_API_KEY || '',
+  alldebridApiKey: process.env.ALLDEBRID_API_KEY || '',
 };
 
