@@ -12,3 +12,4 @@ export async function providerRoutes(fastify: FastifyInstance, _opts: FastifyPlu
     return reply.send(quotas);
   });
 }
+

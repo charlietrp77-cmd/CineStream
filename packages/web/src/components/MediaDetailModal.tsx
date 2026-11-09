@@ -1558,7 +1558,28 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                         </span>
                       )}
                       {stream.badges.sizeText && (
-                        <span className="text-gray-400">{stream.badges.sizeText}</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded border text-[10px] ${
+                            stream.badges.sizeTier === 'micro'
+                              ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                              : stream.badges.sizeTier === 'high'
+                              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                              : stream.badges.sizeTier === 'remux'
+                              ? 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+                              : 'bg-white/5 text-gray-300 border-white/10'
+                          }`}
+                          title={
+                            stream.badges.sizeTier === 'micro'
+                              ? 'Micro-encode: low bitrate (~2-4 Mbps) despite DV/Atmos tags'
+                              : stream.badges.sizeTier === 'high'
+                              ? 'High Bitrate: transparent quality release'
+                              : stream.badges.sizeTier === 'remux'
+                              ? '1:1 Disc Remux: uncompressed/highest bitrate'
+                              : 'Standard release size'
+                          }
+                        >
+                          {stream.badges.sizeTier === 'micro' ? `⚠️ ${stream.badges.sizeText}` : stream.badges.sizeText}
+                        </span>
                       )}
                     </div>
 

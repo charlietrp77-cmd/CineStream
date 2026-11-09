@@ -60,6 +60,8 @@ export interface StreamBadges {
   remux: boolean;
   source: string;
   sizeText: string;
+  sizeBytes?: number;
+  sizeTier?: 'micro' | 'compact' | 'high' | 'remux';
   isNasCached: boolean;
 }
 

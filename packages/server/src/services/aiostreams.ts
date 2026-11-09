@@ -12,6 +12,8 @@ export interface StreamBadges {
   remux: boolean;
   source: string;
   sizeText: string;
+  sizeBytes?: number;
+  sizeTier?: 'micro' | 'compact' | 'high' | 'remux';
   isNasCached: boolean;
 }
 
@@ -102,14 +104,53 @@ export function parseStreamBadges(stream: AioRawStream): StreamBadges {
     source = 'Usenet';
   }
 
-  // Size extraction (e.g., "62.4 GB", "3.2 GiB")
+  // Size extraction (e.g., "62.4 GB", "3.2 GiB", "💾 15.2 GB")
   let sizeText = '';
-  const sizeMatch = /(\d+(?:\.\d+)?)\s*(GB|GiB|MB|MiB)/i.exec(combined);
+  let sizeBytes: number | undefined;
+
+  const sizeMatch = /(?:💾|size[:\s]*|\[|\()?\s*(\d+(?:\.\d+)?)\s*(GB|GiB|MB|MiB)\b/i.exec(combined);
   if (sizeMatch) {
-    sizeText = `${sizeMatch[1]} ${sizeMatch[2].toUpperCase()}`;
+    const val = parseFloat(sizeMatch[1]);
+    const unit = sizeMatch[2].toUpperCase();
+    if (unit.startsWith('G')) {
+      sizeBytes = Math.round(val * 1024 * 1024 * 1024);
+      sizeText = `${val} ${unit}`;
+    } else {
+      sizeBytes = Math.round(val * 1024 * 1024);
+      sizeText = `${val} ${unit}`;
+    }
   } else if (stream.behaviorHints?.videoSize) {
-    const gb = stream.behaviorHints.videoSize / (1024 * 1024 * 1024);
+    sizeBytes = stream.behaviorHints.videoSize;
+    const gb = sizeBytes / (1024 * 1024 * 1024);
     sizeText = gb >= 1 ? `${gb.toFixed(1)} GB` : `${(gb * 1024).toFixed(0)} MB`;
+  }
+
+  // Micro-encode detection (groups known for high compression / 2-3 Mbps re-encodes)
+  const isMicroGroup = /\b(yts|yify|psa|galaxyrg|pahe|qxr|rmteam|megusta)\b/i.test(combined);
+  if (!sizeBytes && isMicroGroup) {
+    sizeText = resolution === '4K' ? '~3.5 GB (Micro)' : '~1.2 GB (Micro)';
+    sizeBytes = resolution === '4K' ? 3.5 * 1024 * 1024 * 1024 : 1.2 * 1024 * 1024 * 1024;
+  }
+
+  // Size tier classification (aligning with TRaSH Guides bitrates)
+  let sizeTier: 'micro' | 'compact' | 'high' | 'remux' = 'compact';
+  if (remux || (sizeBytes && sizeBytes >= 40 * 1024 * 1024 * 1024)) {
+    sizeTier = 'remux';
+  } else if (
+    isMicroGroup ||
+    (sizeBytes &&
+      ((resolution === '4K' && sizeBytes < 6 * 1024 * 1024 * 1024) ||
+        (resolution === '1080p' && sizeBytes < 2 * 1024 * 1024 * 1024)))
+  ) {
+    sizeTier = 'micro';
+  } else if (
+    sizeBytes &&
+    ((resolution === '4K' && sizeBytes >= 16 * 1024 * 1024 * 1024) ||
+      (resolution === '1080p' && sizeBytes >= 5 * 1024 * 1024 * 1024))
+  ) {
+    sizeTier = 'high';
+  } else {
+    sizeTier = 'compact';
   }
 
   return {
@@ -123,6 +164,8 @@ export function parseStreamBadges(stream: AioRawStream): StreamBadges {
     remux,
     source,
     sizeText,
+    sizeBytes,
+    sizeTier,
     isNasCached: false,
   };
 }
@@ -133,14 +176,27 @@ export function computeQualityScore(badges: StreamBadges): number {
   else if (badges.resolution === '1080p') score += 500;
   else if (badges.resolution === '720p') score += 200;
 
-  if (badges.remux) score += 300;
+  // Format & dynamic range features
+  if (badges.remux) score += 400;
   if (badges.dolbyVision) score += 250;
   if (badges.hdr10Plus) score += 150;
   else if (badges.hdr) score += 100;
 
+  // Lossless & advanced audio
   if (badges.atmos) score += 120;
   if (badges.trueHd) score += 80;
   if (badges.dtsHd) score += 70;
+
+  // Size & Bitrate Weighting (TRaSH Guides alignment):
+  // A 3GB 4K release labeled "DV + Atmos" has heavy compression artifacts & low bitrate.
+  // Heavily penalize micro-encodes so high-bitrate encodes or remuxes are picked as bestStream.
+  if (badges.sizeTier === 'micro') {
+    score -= 700;
+  } else if (badges.sizeTier === 'high') {
+    score += 350;
+  } else if (badges.sizeTier === 'remux') {
+    score += 500;
+  }
 
   return score;
 }
