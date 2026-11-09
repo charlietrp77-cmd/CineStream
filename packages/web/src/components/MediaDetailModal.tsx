@@ -175,9 +175,16 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     } catch (_) {}
   };
 
-  const handleNasCache = async (scope: 'movie' | 'episode' | 'remaining_season' | 'season' | 'all_seasons') => {
+  const handleNasCache = async (
+    scope: 'movie' | 'episode' | 'remaining_season' | 'season' | 'all_seasons',
+    overrideSeason?: number,
+    overrideEpisode?: number
+  ) => {
     setIsNasMenuOpen(false);
     const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
+    const seasonNumber = overrideSeason !== undefined ? overrideSeason : selectedSeason;
+    const episodeNumber = overrideEpisode !== undefined ? overrideEpisode : selectedEpisode?.episodeNumber || 1;
+
     try {
       const res = await fetch('/api/nas/cache', {
         method: 'POST',
@@ -190,14 +197,22 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           tmdbId: item.tmdbId,
           mediaType: item.type,
           scope,
-          seasonNumber: selectedSeason,
-          episodeNumber: selectedEpisode?.episodeNumber || 1,
+          seasonNumber,
+          episodeNumber,
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
-        setNasSuccessMessage(`Queued ${data.queuedCount} item(s) for NAS caching!`);
+        const label =
+          scope === 'episode'
+            ? `Episode S${seasonNumber}E${episodeNumber}`
+            : scope === 'season'
+            ? `Season ${seasonNumber} (${data.queuedCount || 'all'} episodes)`
+            : scope === 'all_seasons'
+            ? 'All Seasons'
+            : `${data.queuedCount} item(s)`;
+        setNasSuccessMessage(`Queued ${label} for NAS caching!`);
         setTimeout(() => setNasSuccessMessage(null), 4000);
       }
     } catch (e) {
@@ -212,6 +227,17 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     const season = item.type === 'tv' ? selectedSeason : 0;
     const episode = item.type === 'tv' ? selectedEpisode?.episodeNumber || 1 : 0;
     const downloadId = `${targetImdb}_${season}_${episode}`;
+    const streamUrl = bestStream.rawUrl || bestStream.url;
+
+    // Trigger browser file download on desktop
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const epSuffix = item.type === 'tv' ? ` - S${pad(season)}E${pad(episode)}` : '';
+    const link = document.createElement('a');
+    link.href = streamUrl.includes('/api/nas/stream') ? `${streamUrl}?download=1` : streamUrl;
+    link.download = `${item.title}${epSuffix}.mkv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
     const downloadedItem = await offlineDownloader.startDownload({
       downloadId,
@@ -224,12 +250,65 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       episodeTitle: selectedEpisode?.title,
       posterUrl: item.posterUrl || undefined,
       backdropUrl: item.backdropUrl || undefined,
-      streamUrl: bestStream.rawUrl,
+      streamUrl,
       headers: bestStream.headers,
     });
 
     await saveItem(downloadedItem);
-    setNasSuccessMessage('Started offline download to this device!');
+    setNasSuccessMessage(bestStream.badges.isNasCached ? 'Started direct download from NAS to this device!' : 'Started download to this device!');
+    setTimeout(() => setNasSuccessMessage(null), 4000);
+  };
+
+  const handleDeviceDownloadEpisode = async (seasonNum: number, ep: TvSeasonEpisode) => {
+    const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
+    const downloadId = `${targetImdb}_${seasonNum}_${ep.episodeNumber}`;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+
+    let streamUrl = '';
+    let isFromNas = false;
+
+    if (ep.isNasCached) {
+      const nasId = `${targetImdb}:${seasonNum}:${ep.episodeNumber}`;
+      streamUrl = `/api/nas/stream/${encodeURIComponent(nasId)}?download=1`;
+      isFromNas = true;
+    } else {
+      const best = streams[0];
+      if (best) {
+        streamUrl = best.rawUrl || best.url;
+      } else {
+        setNasSuccessMessage(`Selected S${seasonNum}E${ep.episodeNumber} - click again to download once streams finish loading`);
+        setTimeout(() => setNasSuccessMessage(null), 4000);
+        return;
+      }
+    }
+
+    // Trigger direct browser download
+    const link = document.createElement('a');
+    link.href = streamUrl;
+    link.download = `${item.title} - S${pad(seasonNum)}E${pad(ep.episodeNumber)} - ${ep.title}.mkv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Register with offline store
+    try {
+      const downloadedItem = await offlineDownloader.startDownload({
+        downloadId,
+        imdbId: targetImdb,
+        tmdbId: item.tmdbId,
+        mediaType: item.type,
+        season: seasonNum,
+        episode: ep.episodeNumber,
+        title: item.title,
+        episodeTitle: ep.title,
+        posterUrl: item.posterUrl || undefined,
+        backdropUrl: item.backdropUrl || undefined,
+        streamUrl,
+      });
+      await saveItem(downloadedItem);
+    } catch (_) {}
+
+    setNasSuccessMessage(isFromNas ? `Downloading S${seasonNum}E${ep.episodeNumber} directly from NAS!` : `Downloading S${seasonNum}E${ep.episodeNumber} to this device!`);
     setTimeout(() => setNasSuccessMessage(null), 4000);
   };
 
@@ -366,33 +445,50 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             </button>
 
             {/* Cache to NAS Button & Dropdown */}
-            <div className="relative">
-              {item.type === 'movie' ? (
+            {item.type === 'movie' ? (
+              <button
+                onClick={() => handleNasCache('movie')}
+                className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded font-semibold text-sm transition-all shadow"
+              >
+                <Zap className="w-4 h-4 fill-white" />
+                <span>Cache to NAS</span>
+              </button>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={() => handleNasCache('movie')}
-                  className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded font-semibold text-sm transition-all"
+                  onClick={() => handleNasCache('episode')}
+                  className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white px-3.5 py-2.5 rounded font-semibold text-sm transition-all shadow"
+                  title="Cache currently selected episode to NAS"
                 >
                   <Zap className="w-4 h-4 fill-white" />
-                  <span>Cache to NAS</span>
+                  <span>Cache Ep {selectedEpisode?.episodeNumber || 1}</span>
                 </button>
-              ) : (
-                <>
+
+                <button
+                  onClick={() => handleNasCache('season')}
+                  className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-600 text-white px-3.5 py-2.5 rounded font-semibold text-sm transition-all shadow"
+                  title={`Cache all episodes of Season ${selectedSeason} to NAS`}
+                >
+                  <Zap className="w-4 h-4 fill-white" />
+                  <span>Cache Season {selectedSeason}</span>
+                </button>
+
+                <div className="relative">
                   <button
                     onClick={() => setIsNasMenuOpen(!isNasMenuOpen)}
-                    className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded font-semibold text-sm transition-all"
+                    className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded font-semibold text-sm transition-all"
+                    title="More caching options"
                   >
-                    <Zap className="w-4 h-4 fill-white" />
-                    <span>Cache to NAS</span>
-                    <ChevronDown className="w-3.5 h-3.5" />
+                    <ChevronDown className="w-4 h-4" />
                   </button>
 
                   {isNasMenuOpen && (
-                    <div className="absolute left-0 mt-2 w-56 bg-[#202020] border border-white/10 rounded-lg shadow-2xl py-1 z-30 text-xs">
+                    <div className="absolute left-0 sm:right-0 sm:left-auto mt-2 w-56 bg-[#202020] border border-white/10 rounded-lg shadow-2xl py-1 z-30 text-xs">
                       <button
                         onClick={() => handleNasCache('episode')}
                         className="w-full text-left px-4 py-2 hover:bg-white/10"
                       >
-                        Cache Current Episode
+                        Cache Ep {selectedEpisode?.episodeNumber || 1}
                       </button>
                       <button
                         onClick={() => handleNasCache('remaining_season')}
@@ -414,9 +510,9 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                       </button>
                     </div>
                   )}
-                </>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
 
             {/* Download to Device */}
             <button
@@ -425,7 +521,9 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               className="flex items-center gap-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white px-4 py-2.5 rounded font-medium text-sm transition-all"
             >
               <Download className="w-4 h-4" />
-              <span>Download for Trip</span>
+              <span>
+                {bestStream?.badges.isNasCached ? 'Download from NAS' : 'Download for Trip'}
+              </span>
             </button>
 
             {/* My List */}
@@ -448,23 +546,37 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           {/* TV Series Episode Picker */}
           {item.type === 'tv' && (
             <div className="space-y-4 pt-4 border-t border-white/10">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-bold text-lg">Episodes</h3>
 
-                {/* Season Dropdown */}
-                {seasons.length > 1 && (
-                  <select
-                    value={selectedSeason}
-                    onChange={(e) => setSelectedSeason(parseInt(e.target.value, 10))}
-                    className="bg-[#242424] border border-gray-700 rounded px-3 py-1.5 text-sm font-semibold focus:outline-none focus:border-red-600"
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleNasCache('season', selectedSeason);
+                    }}
+                    className="flex items-center gap-1.5 bg-amber-600/30 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/40 px-3 py-1.5 rounded text-xs font-semibold transition-all shadow"
+                    title={`Cache entire Season ${selectedSeason} to NAS`}
                   >
-                    {seasons.map((s) => (
-                      <option key={s} value={s}>
-                        Season {s}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                    <Zap className="w-3.5 h-3.5 fill-current" />
+                    <span>Cache Season {selectedSeason}</span>
+                  </button>
+
+                  {/* Season Dropdown */}
+                  {seasons.length > 1 && (
+                    <select
+                      value={selectedSeason}
+                      onChange={(e) => setSelectedSeason(parseInt(e.target.value, 10))}
+                      className="bg-[#242424] border border-gray-700 rounded px-3 py-1.5 text-sm font-semibold focus:outline-none focus:border-red-600"
+                    >
+                      {seasons.map((s) => (
+                        <option key={s} value={s}>
+                          Season {s}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               </div>
 
               {/* Episodes List */}
@@ -504,10 +616,45 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-1">
                           <span className="text-xs font-bold text-gray-200 truncate">
                             {ep.episodeNumber}. {ep.title}
                           </span>
+
+                          <div className="flex items-center gap-1.5 flex-none ml-1">
+                            {ep.isNasCached ? (
+                              <span
+                                className="flex items-center gap-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded text-[10px] font-bold"
+                                title="Cached on local NAS"
+                              >
+                                <Zap className="w-2.5 h-2.5 fill-amber-300" />
+                                <span>Cached</span>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNasCache('episode', selectedSeason, ep.episodeNumber);
+                                }}
+                                className="flex items-center gap-1 bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white border border-amber-500/40 px-1.5 py-0.5 rounded text-[10px] font-bold transition-all shadow-sm"
+                                title={`Cache Ep ${ep.episodeNumber} to NAS`}
+                              >
+                                <Zap className="w-2.5 h-2.5 fill-current" />
+                                <span>Cache</span>
+                              </button>
+                            )}
+
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeviceDownloadEpisode(selectedSeason, ep);
+                              }}
+                              className="p-1 hover:bg-white/20 text-gray-400 hover:text-white rounded transition-colors"
+                              title={ep.isNasCached ? "Download episode to device from NAS" : "Download episode to device"}
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                         <p className="text-[11px] text-gray-400 line-clamp-2 mt-1">
                           {ep.overview || 'No synopsis available.'}

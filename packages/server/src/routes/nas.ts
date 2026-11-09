@@ -264,9 +264,10 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
     return reply.send(space);
   });
 
-  // Stream local NAS media file
+  // Stream or download local NAS media file
   fastify.get('/api/nas/stream/:id', async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as { id: string };
+    const query = req.query as { download?: string };
     const item = nasDownloader.getJob(id);
 
     if (!item || item.status !== 'completed' || !fs.existsSync(item.file_path)) {
@@ -276,6 +277,8 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
     const stat = fs.statSync(item.file_path);
     const totalSize = stat.size;
     const rawRange = req.headers.range;
+    const filename = path.basename(item.file_path);
+    const isDownload = Boolean(query && (query.download === '1' || query.download === 'true'));
 
     let start = 0;
     let end = totalSize - 1;
@@ -291,17 +294,31 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
     if (start >= totalSize) {
       reply.status(416).headers({
         'Content-Range': `bytes */${totalSize}`,
+        'Access-Control-Allow-Origin': '*',
       }).send('Requested range not satisfiable');
       return;
+    }
+
+    reply.raw.setHeader('Access-Control-Allow-Origin', '*');
+    reply.raw.setHeader('Accept-Ranges', 'bytes');
+    reply.raw.setHeader('Content-Type', 'video/x-matroska');
+    reply.raw.setHeader('Connection', 'keep-alive');
+
+    if (isDownload) {
+      reply.raw.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    }
+
+    if (!rawRange) {
+      reply.raw.statusCode = 200;
+      reply.raw.setHeader('Content-Length', totalSize.toString());
+      const stream = fs.createReadStream(item.file_path, { highWaterMark: 2 * 1024 * 1024 });
+      return reply.send(stream);
     }
 
     const chunkSize = end - start + 1;
     reply.raw.statusCode = 206;
     reply.raw.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
-    reply.raw.setHeader('Accept-Ranges', 'bytes');
     reply.raw.setHeader('Content-Length', chunkSize.toString());
-    reply.raw.setHeader('Content-Type', 'video/x-matroska');
-    reply.raw.setHeader('Connection', 'keep-alive');
 
     const stream = fs.createReadStream(item.file_path, {
       start,

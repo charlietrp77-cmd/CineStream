@@ -10,6 +10,7 @@ import {
   CheckCircle,
   AlertCircle,
   WifiOff,
+  Download,
 } from 'lucide-react';
 import { DiskSpaceInfo, NasCacheItem, OfflineMediaItem, ResolvedStream } from '../types/api';
 import { useOfflineStore } from '../store/useOfflineStore';
@@ -101,6 +102,36 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
       fetchNasJobs();
       fetchDiskSpace();
     }
+  };
+
+  const handleDownloadNasToDevice = async (job: NasCacheItem) => {
+    // 1. Trigger direct browser download
+    const downloadUrl = `/api/nas/stream/${encodeURIComponent(job.id)}?download=1`;
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    link.download = `${job.title}${job.episode_title ? ` - S${pad(job.season)}E${pad(job.episode)} - ${job.episode_title}` : ''}.mkv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // 2. Also register with offlineDownloader on native/offline store
+    try {
+      const downloadedItem = await offlineDownloader.startDownload({
+        downloadId: `nas_local_${job.id}`,
+        imdbId: job.imdb_id,
+        tmdbId: job.tmdb_id,
+        mediaType: job.media_type,
+        season: job.season,
+        episode: job.episode,
+        title: job.title,
+        episodeTitle: job.episode_title || undefined,
+        posterUrl: job.poster_url || undefined,
+        backdropUrl: job.backdrop_url || undefined,
+        streamUrl: `${window.location.origin}/api/nas/stream/${encodeURIComponent(job.id)}`,
+      });
+      await saveItem(downloadedItem);
+    } catch (_) {}
   };
 
   if (!isOpen) return null;
@@ -226,13 +257,24 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                         {/* Status badge / Controls */}
                         <div className="flex items-center gap-2 flex-none">
                           {job.status === 'completed' && (
-                            <button
-                              onClick={() => onPlayNasItem(job)}
-                              className="p-2 bg-emerald-600/30 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-lg transition-colors"
-                              title="Play from NAS"
-                            >
-                              <Play className="w-4 h-4 fill-current" />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => onPlayNasItem(job)}
+                                className="p-2 bg-emerald-600/30 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-lg transition-colors"
+                                title="Play from NAS"
+                              >
+                                <Play className="w-4 h-4 fill-current" />
+                              </button>
+
+                              <button
+                                onClick={() => handleDownloadNasToDevice(job)}
+                                className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors flex items-center gap-1.5"
+                                title="Download file to device from NAS"
+                              >
+                                <Download className="w-4 h-4" />
+                                <span className="text-xs font-semibold hidden sm:inline">Save</span>
+                              </button>
+                            </>
                           )}
 
                           {job.status === 'downloading' && (
