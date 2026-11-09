@@ -77,6 +77,7 @@ export interface ResolvedStream {
   qualityScore: number;
   infoHash?: string;
   magnetUrl?: string;
+  nzbUrl?: string;
 }
 
 export interface WatchProgress {

@@ -1,4 +1,5 @@
 import { fetch as undiciFetch } from 'undici';
+import path from 'path';
 import { appSettings } from './appSettings';
 import { StreamBadges } from './aiostreams';
 
@@ -203,6 +204,7 @@ export class ArrService {
     targetSizeBytes: number;
     targetBadges?: Partial<StreamBadges>;
     targetMagnetUrl?: string;
+    targetNzbUrl?: string;
     selectedGuid?: string;
     selectedIndexerId?: number;
   }): Promise<PushResult> {
@@ -343,6 +345,50 @@ export class ArrService {
       } catch (_) {}
     }
 
+    // 1c. If direct NZB link is available, push directly into Radarr (Usenet)
+    if (params.targetNzbUrl) {
+      try {
+        const directPushRes = await undiciFetch(`${radarr.url}/api/v3/release/push`, {
+          method: 'POST',
+          headers: {
+            'X-Api-Key': radarr.key,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: params.movieTitle,
+            downloadUrl: params.targetNzbUrl,
+            protocol: 'usenet',
+            publishDate: new Date().toISOString(),
+          }),
+        });
+        if (directPushRes.ok) {
+          return {
+            success: true,
+            service: 'radarr',
+            matchedRelease: {
+              guid: params.targetNzbUrl,
+              indexerId: 0,
+              indexer: 'Direct Usenet NZB',
+              title: params.movieTitle,
+              sizeBytes: params.targetSizeBytes,
+              sizeText: formatBytes(params.targetSizeBytes),
+              targetSizeBytes: params.targetSizeBytes,
+              sizeDiffBytes: 0,
+              sizeDiffPercent: 0,
+              isWithin10Percent: true,
+              resolution: params.targetBadges?.resolution || '4K',
+              qualityName: 'Direct NZB',
+              rejected: false,
+              score: 9999,
+            },
+            message: `Pushed exact stream NZB directly into Radarr (Usenet)!`,
+            isWithin10Percent: true,
+            allCandidatesCount: 1,
+          };
+        }
+      } catch (_) {}
+    }
+
     // 2. Fetch releases from Radarr indexers
     let rawReleases: any[] = [];
     try {
@@ -459,6 +505,7 @@ export class ArrService {
     targetSizeBytes: number;
     targetBadges?: Partial<StreamBadges>;
     targetMagnetUrl?: string;
+    targetNzbUrl?: string;
     selectedGuid?: string;
   }): Promise<PushResult> {
     const sonarr = this.getSonarrConfig();
@@ -598,6 +645,50 @@ export class ArrService {
       } catch (_) {}
     }
 
+    // 1c. If direct NZB link is available, push directly into Sonarr (Usenet)
+    if (params.targetNzbUrl) {
+      try {
+        const directPushRes = await undiciFetch(`${sonarr.url}/api/v3/release/push`, {
+          method: 'POST',
+          headers: {
+            'X-Api-Key': sonarr.key,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: params.seriesTitle,
+            downloadUrl: params.targetNzbUrl,
+            protocol: 'usenet',
+            publishDate: new Date().toISOString(),
+          }),
+        });
+        if (directPushRes.ok) {
+          return {
+            success: true,
+            service: 'sonarr',
+            matchedRelease: {
+              guid: params.targetNzbUrl,
+              indexerId: 0,
+              indexer: 'Direct Usenet NZB',
+              title: params.seriesTitle,
+              sizeBytes: params.targetSizeBytes,
+              sizeText: formatBytes(params.targetSizeBytes),
+              targetSizeBytes: params.targetSizeBytes,
+              sizeDiffBytes: 0,
+              sizeDiffPercent: 0,
+              isWithin10Percent: true,
+              resolution: params.targetBadges?.resolution || '4K',
+              qualityName: 'Direct NZB',
+              rejected: false,
+              score: 9999,
+            },
+            message: `Pushed exact stream NZB directly into Sonarr (Usenet)!`,
+            isWithin10Percent: true,
+            allCandidatesCount: 1,
+          };
+        }
+      } catch (_) {}
+    }
+
     // 2. Fetch releases from Sonarr
     let releaseUrl = `${sonarr.url}/api/v3/release?seriesId=${seriesId}`;
     if (params.episodeNumber !== undefined) {
@@ -717,6 +808,48 @@ export class ArrService {
         allCandidatesCount: ranked.length,
         error: err.message,
       };
+    }
+  }
+
+  /**
+   * Notifies Radarr or Sonarr when a backend download finishes so it can auto-import and register the file into the library.
+   */
+  public async notifyDownloadCompleted(mediaType: 'movie' | 'tv', filePath: string): Promise<void> {
+    const folderPath = path.dirname(filePath);
+    try {
+      if (mediaType === 'movie') {
+        const radarr = this.getRadarrConfig();
+        if (radarr.isConfigured) {
+          await undiciFetch(`${radarr.url}/api/v3/command`, {
+            method: 'POST',
+            headers: {
+              'X-Api-Key': radarr.key,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: 'DownloadedMoviesScan',
+              path: folderPath,
+            }),
+          });
+        }
+      } else {
+        const sonarr = this.getSonarrConfig();
+        if (sonarr.isConfigured) {
+          await undiciFetch(`${sonarr.url}/api/v3/command`, {
+            method: 'POST',
+            headers: {
+              'X-Api-Key': sonarr.key,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: 'DownloadedEpisodesScan',
+              path: folderPath,
+            }),
+          });
+        }
+      }
+    } catch (err) {
+      console.warn(`Failed to notify Arr service of completed download:`, err);
     }
   }
 }

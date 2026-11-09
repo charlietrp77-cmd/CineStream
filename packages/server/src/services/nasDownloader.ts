@@ -6,6 +6,7 @@ import { config } from '../config';
 import { db } from '../db';
 import { NasCacheItemRow } from '../db/schema';
 import { getUpstreamMetadata } from './proxy';
+import { arrService } from './arrService';
 
 const undiciAgent = new Agent({
   connections: 64,
@@ -361,6 +362,9 @@ class NasDownloaderService {
 
       this.activeDownloads.delete(item.id);
       this.broadcastProgress();
+
+      // Auto-notify Radarr/Sonarr to scan and import completed download
+      arrService.notifyDownloadCompleted(item.media_type, item.file_path).catch(() => {});
 
       // Trigger next item in queue
       this.processQueue().catch(() => {});

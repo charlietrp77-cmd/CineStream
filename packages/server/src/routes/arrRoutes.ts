@@ -48,6 +48,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       targetSizeBytes: number;
       targetBadges?: Partial<StreamBadges>;
       targetMagnetUrl?: string;
+      targetNzbUrl?: string;
       selectedGuid?: string;
       selectedIndexerId?: number;
     };
@@ -65,6 +66,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
         targetSizeBytes: body.targetSizeBytes || 0,
         targetBadges: body.targetBadges,
         targetMagnetUrl: body.targetMagnetUrl,
+        targetNzbUrl: body.targetNzbUrl,
         selectedGuid: body.selectedGuid,
         selectedIndexerId: body.selectedIndexerId,
       });
@@ -78,6 +80,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
         targetSizeBytes: body.targetSizeBytes || 0,
         targetBadges: body.targetBadges,
         targetMagnetUrl: body.targetMagnetUrl,
+        targetNzbUrl: body.targetNzbUrl,
         selectedGuid: body.selectedGuid,
       });
       return reply.send(result);

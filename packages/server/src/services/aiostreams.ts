@@ -23,6 +23,7 @@ export interface AioRawStream {
   description?: string;
   url?: string;
   infoHash?: string;
+  nzbUrl?: string;
   fileIdx?: number;
   sources?: string[];
   behaviorHints?: {
@@ -30,6 +31,7 @@ export interface AioRawStream {
     filename?: string;
     videoHash?: string;
     videoSize?: number;
+    nzbUrl?: string;
     proxyHeaders?: {
       request?: Record<string, string>;
     };
@@ -49,6 +51,7 @@ export interface ResolvedStream {
   qualityScore: number;
   infoHash?: string;
   magnetUrl?: string;
+  nzbUrl?: string;
 }
 
 const CAM_REGEX = /\b(CAM|HDCAM|CAM-?RIP|TS-?RIP|TELESYNC|HD-?TS|TELE-?CINE|DVD-?SCR|SCREENER|WORKPRINT)\b/i;
@@ -443,6 +446,12 @@ class AioStreamsService {
         magnetUrl = `magnet:?xt=urn:btih:${infoHash}&dn=${dn}${trackerParams}`;
       }
 
+      // Extract NZB URL if present from Usenet scrapers/indexers
+      let nzbUrl = raw.nzbUrl || raw.behaviorHints?.nzbUrl;
+      if (!nzbUrl && raw.url && (/\.nzb(\?|$)/i.test(raw.url) || /mode=getnzb/i.test(raw.url))) {
+        nzbUrl = raw.url;
+      }
+
       // Construct stream proxy URL (relative so client always streams from its own origin)
       const urlBase64 = Buffer.from(raw.url).toString('base64url');
       const headersBase64 = headers ? Buffer.from(JSON.stringify(headers)).toString('base64url') : '';
@@ -460,6 +469,7 @@ class AioStreamsService {
         qualityScore: score,
         infoHash,
         magnetUrl,
+        nzbUrl,
       });
     }
 

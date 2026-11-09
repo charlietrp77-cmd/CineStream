@@ -17,6 +17,7 @@ import {
   EyeOff,
   Radar,
   Magnet,
+  FileDown,
 } from 'lucide-react';
 import { CatalogItem, ResolvedStream, TvSeasonEpisode, NasCacheItem, ArrPushResult } from '../types/api';
 import { useProfileStore } from '../store/useProfileStore';
@@ -903,6 +904,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           targetSizeBytes: targetStream.badges.sizeBytes || 0,
           targetBadges: targetStream.badges,
           targetMagnetUrl: targetStream.magnetUrl,
+          targetNzbUrl: targetStream.nzbUrl,
         }),
       });
 
@@ -1704,6 +1706,24 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                         title="Copy Magnet link to clipboard"
                       >
                         <Magnet className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* Copy NZB Link / Download NZB */}
+                    {stream.nzbUrl && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (navigator.clipboard) {
+                            navigator.clipboard.writeText(stream.nzbUrl!);
+                            setNasSuccessMessage('📰 NZB link copied to clipboard!');
+                            setTimeout(() => setNasSuccessMessage(null), 4000);
+                          }
+                        }}
+                        className="bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white p-2 rounded-full transition-colors border border-blue-500/30"
+                        title="Copy NZB link to clipboard"
+                      >
+                        <FileDown className="w-3.5 h-3.5" />
                       </button>
                     )}
 
