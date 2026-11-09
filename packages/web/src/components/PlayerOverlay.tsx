@@ -11,6 +11,10 @@ import {
   Zap,
   Tablet,
   Sparkles,
+  ExternalLink,
+  Copy,
+  Check,
+  AlertTriangle,
 } from 'lucide-react';
 import { TrackInfo } from '@cinestream/capacitor-native-player';
 import { nativePlayer } from '../bridge/nativePlayer';
@@ -55,6 +59,22 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
   const [subtitleTracks, setSubtitleTracks] = useState<TrackInfo[]>([]);
   const [showAudioMenu, setShowAudioMenu] = useState(false);
   const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
+  const [playerError, setPlayerError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const absoluteStreamUrl = streamUrl.startsWith('http')
+    ? streamUrl
+    : `${window.location.origin}${streamUrl}`;
+
+  const copyStreamUrl = () => {
+    navigator.clipboard.writeText(absoluteStreamUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
+  };
+
+  const openInVlc = () => {
+    window.location.href = `vlc://${absoluteStreamUrl}`;
+  };
 
   const osdTimerRef = useRef<NodeJS.Timeout | null>(null);
   const progressSyncRef = useRef<NodeJS.Timeout | null>(null);
@@ -112,6 +132,12 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
       setSubtitleTracks(subtitles);
     });
 
+    const unsubError = nativePlayer.onError((msg) => {
+      console.warn('Native player reported error:', msg);
+      setPlayerError(msg || 'Video format could not be decoded by browser');
+      setShowOsd(true);
+    });
+
     // Sync watch progress to server every 5 seconds
     progressSyncRef.current = setInterval(() => {
       if (!imdbId || currentTimeMs <= 0) return;
@@ -144,6 +170,7 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
       unsubTime();
       unsubEnded();
       unsubTracks();
+      unsubError();
       nativePlayer.stop();
     };
   }, [streamUrl]);
@@ -232,8 +259,66 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
               <Sparkles className="w-3.5 h-3.5 text-red-500" />
               4K Dolby Vision • Atmos
             </span>
+
+            <button
+              onClick={copyStreamUrl}
+              title="Copy Stream URL (for VLC, MPV, or PotPlayer)"
+              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-colors"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copied ? 'Copied' : 'Copy Stream'}</span>
+            </button>
+
+            <button
+              onClick={openInVlc}
+              title="Open stream directly in VLC Media Player"
+              className="hidden sm:flex items-center gap-1.5 bg-orange-600/80 hover:bg-orange-600 text-white px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>VLC</span>
+            </button>
           </div>
         </div>
+
+        {/* Browser Codec Error Modal */}
+        {playerError && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-md p-6">
+            <div className="max-w-md w-full bg-[#1c1c1e] border border-red-500/40 rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+              <div className="w-12 h-12 rounded-full bg-red-500/20 text-red-500 flex items-center justify-center mx-auto">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white">Browser Playback Notice</h3>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Your browser could not decode this stream format directly (likely MKV container, TrueHD/DTS audio, or HEVC video).
+                Stream smoothly by launching VLC or copying the link to any media player.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                <button
+                  onClick={openInVlc}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow transition-all"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open in VLC
+                </button>
+                <button
+                  onClick={copyStreamUrl}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-white/10 hover:bg-white/20 active:scale-95 text-white font-bold text-xs rounded-xl transition-all"
+                >
+                  {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  {copied ? 'Copied URL!' : 'Copy Stream URL'}
+                </button>
+              </div>
+              <div>
+                <button
+                  onClick={handleClose}
+                  className="text-xs text-gray-400 hover:text-white underline pt-2"
+                >
+                  Return to CineStream
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Center Controls (-10s, Play/Pause, +10s) */}
         <div className="flex items-center justify-center gap-10">

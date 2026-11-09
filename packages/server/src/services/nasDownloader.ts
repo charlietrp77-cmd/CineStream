@@ -284,21 +284,38 @@ class NasDownloaderService {
 
       let nextSegmentIdx = 0;
 
+      const targetUrl = meta.finalUrl || item.source_url;
       const worker = async () => {
         while (!active.abortController.signal.aborted && nextSegmentIdx < segments.length) {
           const seg = segments[nextSegmentIdx++];
           if (!seg) break;
 
-          const res = await undiciRequest(item.source_url, {
-            method: 'GET',
-            headers: {
-              Range: `bytes=${seg.start}-${seg.end}`,
-              'User-Agent': 'CineStream/1.0.0 (NAS Downloader)',
-              ...customHeaders,
-            },
-            signal: active.abortController.signal,
-            dispatcher: undiciAgent,
-          });
+          let fetchUrl = targetUrl;
+          let rCount = 0;
+          let res: any = null;
+
+          while (rCount < 5) {
+            res = await undiciRequest(fetchUrl, {
+              method: 'GET',
+              headers: {
+                Range: `bytes=${seg.start}-${seg.end}`,
+                'User-Agent': 'CineStream/1.0.0 (NAS Downloader)',
+                ...customHeaders,
+              },
+              signal: active.abortController.signal,
+              dispatcher: undiciAgent,
+            });
+
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+              for await (const _ of res.body) {}
+              fetchUrl = new URL(res.headers.location as string, fetchUrl).toString();
+              rCount++;
+              continue;
+            }
+            break;
+          }
+
+          if (!res) continue;
 
           const chunks: Buffer[] = [];
           for await (const chunk of res.body) {

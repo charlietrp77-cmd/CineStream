@@ -8,7 +8,8 @@ const undiciAgent = new Agent({
   keepAliveMaxTimeout: 60000,
 });
 
-interface UpstreamMetadata {
+export interface UpstreamMetadata {
+  finalUrl: string;
   totalSize: number;
   contentType: string;
   acceptsRanges: boolean;
@@ -27,46 +28,69 @@ export async function getUpstreamMetadata(
     return cached;
   }
 
-  const reqHeaders: Record<string, string> = {
-    Range: 'bytes=0-1',
-    'User-Agent': 'CineStream/1.0.0 (Fastify)',
-    ...customHeaders,
-  };
-
-  const response = await undiciRequest(url, {
-    method: 'GET',
-    headers: reqHeaders,
-    dispatcher: undiciAgent,
-  });
-
-  const headers = response.headers;
-  const contentRange = headers['content-range'] as string | undefined;
-  const contentType = (headers['content-type'] as string) || 'video/x-matroska';
-  const acceptRanges = headers['accept-ranges'] as string | undefined;
+  let currentUrl = url;
+  let redirects = 0;
+  const maxRedirects = 10;
 
   let totalSize = 0;
-  let acceptsRanges = acceptRanges === 'bytes' || Boolean(contentRange);
+  let contentType = 'video/x-matroska';
+  let acceptsRanges = true;
 
-  if (contentRange) {
-    const match = /bytes\s+(\d+)-(\d+)\/(\d+|\*)/i.exec(contentRange);
-    if (match && match[3] !== '*') {
-      totalSize = parseInt(match[3], 10);
+  while (redirects < maxRedirects) {
+    const reqHeaders: Record<string, string> = {
+      Range: 'bytes=0-1',
+      'User-Agent': 'CineStream/1.0.0 (Fastify)',
+      ...customHeaders,
+    };
+
+    const response = await undiciRequest(currentUrl, {
+      method: 'GET',
+      headers: reqHeaders,
+      dispatcher: undiciAgent,
+    });
+
+    const statusCode = response.statusCode;
+    const headers = response.headers;
+
+    // Drain body to free socket
+    for await (const _ of response.body) {}
+
+    // Check if HTTP redirect (301, 302, 303, 307, 308)
+    if (statusCode >= 300 && statusCode < 400 && headers.location) {
+      const nextLocation = headers.location as string;
+      currentUrl = new URL(nextLocation, currentUrl).toString();
+      redirects++;
+      continue;
     }
-  }
 
-  if (!totalSize) {
-    const contentLength = headers['content-length'] as string | undefined;
-    if (contentLength) {
-      totalSize = parseInt(contentLength, 10);
+    // Reached final destination
+    const contentRange = headers['content-range'] as string | undefined;
+    const rawContentType = (headers['content-type'] as string) || '';
+    if (rawContentType && !rawContentType.includes('text/plain') && !rawContentType.includes('text/html')) {
+      contentType = rawContentType;
     }
-  }
+    const acceptRanges = headers['accept-ranges'] as string | undefined;
+    acceptsRanges = acceptRanges === 'bytes' || Boolean(contentRange);
 
-  // Drain body to free connection
-  for await (const _ of response.body) {
-    // consume
+    if (contentRange) {
+      const match = /bytes\s+(\d+)-(\d+)\/(\d+|\*)/i.exec(contentRange);
+      if (match && match[3] !== '*') {
+        totalSize = parseInt(match[3], 10);
+      }
+    }
+
+    if (!totalSize) {
+      const contentLength = headers['content-length'] as string | undefined;
+      if (contentLength) {
+        totalSize = parseInt(contentLength, 10);
+      }
+    }
+
+    break;
   }
 
   const meta: UpstreamMetadata = {
+    finalUrl: currentUrl,
     totalSize,
     contentType,
     acceptsRanges,
@@ -84,6 +108,7 @@ export async function handleProxyStream(
   upstreamHeaders?: Record<string, string>
 ): Promise<void> {
   const meta = await getUpstreamMetadata(upstreamUrl, upstreamHeaders);
+  const targetUrl = meta.finalUrl || upstreamUrl;
 
   const totalSize = meta.totalSize;
   const rawRange = req.headers.range;
@@ -130,22 +155,40 @@ export async function handleProxyStream(
   };
   req.raw.on('close', onClientClose);
 
-  // 1. Small Metadata Tail-Seek Fast Path
-  const isSmallRange = contentLength <= 2 * 1024 * 1024;
-  const isTailSeek = totalSize > 0 && startByte > totalSize - 4 * 1024 * 1024;
-
-  if (isSmallRange || isTailSeek) {
-    try {
-      const response = await undiciRequest(upstreamUrl, {
+  // Helper to fetch byte range following redirects
+  const fetchRangeStream = async (start: number, end: number) => {
+    let fetchUrl = targetUrl;
+    let rCount = 0;
+    while (rCount < 5) {
+      const res = await undiciRequest(fetchUrl, {
         method: 'GET',
         headers: {
-          Range: `bytes=${startByte}-${endByte}`,
+          Range: `bytes=${start}-${end}`,
           'User-Agent': 'CineStream/1.0.0 (Fastify)',
           ...upstreamHeaders,
         },
         signal: abortController.signal,
         dispatcher: undiciAgent,
       });
+
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        for await (const _ of res.body) {}
+        fetchUrl = new URL(res.headers.location as string, fetchUrl).toString();
+        rCount++;
+        continue;
+      }
+      return res;
+    }
+    throw new Error('Too many redirects in chunk fetch');
+  };
+
+  // 1. Small Metadata Tail-Seek Fast Path
+  const isSmallRange = contentLength <= 2 * 1024 * 1024;
+  const isTailSeek = totalSize > 0 && startByte > totalSize - 4 * 1024 * 1024;
+
+  if (isSmallRange || isTailSeek) {
+    try {
+      const response = await fetchRangeStream(startByte, endByte);
 
       for await (const chunk of response.body) {
         if (abortController.signal.aborted) break;
@@ -188,7 +231,6 @@ export async function handleProxyStream(
   const completedChunks = new Map<number, Buffer>();
   let currentFlushIndex = 0;
   let nextChunkToAssign = 1; // Chunk 0 is streamed immediately by worker 0
-  let isFlushing = false;
   let flushResolvers: Array<() => void> = [];
 
   const notifyFlusher = () => {
@@ -198,16 +240,7 @@ export async function handleProxyStream(
   };
 
   const fetchChunkData = async (task: ChunkTask): Promise<Buffer> => {
-    const response = await undiciRequest(upstreamUrl, {
-      method: 'GET',
-      headers: {
-        Range: `bytes=${task.start}-${task.end}`,
-        'User-Agent': 'CineStream/1.0.0 (Fastify)',
-        ...upstreamHeaders,
-      },
-      signal: abortController.signal,
-      dispatcher: undiciAgent,
-    });
+    const response = await fetchRangeStream(task.start, task.end);
 
     const buffers: Buffer[] = [];
     for await (const chunk of response.body) {
@@ -221,7 +254,6 @@ export async function handleProxyStream(
   const runPrefetchWorker = async () => {
     while (!abortController.signal.aborted && nextChunkToAssign < totalChunks) {
       if (nextChunkToAssign > currentFlushIndex + MAX_READAHEAD_CHUNKS) {
-        // Wait until flusher moves forward
         await new Promise<void>((resolve) => {
           flushResolvers.push(resolve);
         });
@@ -239,7 +271,6 @@ export async function handleProxyStream(
         notifyFlusher();
       } catch (err) {
         if (!abortController.signal.aborted) {
-          // Put chunk back to retry or break
           break;
         }
       }
@@ -256,16 +287,7 @@ export async function handleProxyStream(
   // Stream Chunk 0 directly to client for instant TTFB
   try {
     const chunk0 = chunks[0];
-    const res0 = await undiciRequest(upstreamUrl, {
-      method: 'GET',
-      headers: {
-        Range: `bytes=${chunk0.start}-${chunk0.end}`,
-        'User-Agent': 'CineStream/1.0.0 (Fastify)',
-        ...upstreamHeaders,
-      },
-      signal: abortController.signal,
-      dispatcher: undiciAgent,
-    });
+    const res0 = await fetchRangeStream(chunk0.start, chunk0.end);
 
     for await (const chunk of res0.body) {
       if (abortController.signal.aborted) break;
@@ -278,7 +300,7 @@ export async function handleProxyStream(
     currentFlushIndex = 1;
     notifyFlusher();
 
-    // Now flush chunks 1 through totalChunks - 1 in order
+    // Flush chunks 1 through totalChunks - 1 in order
     while (currentFlushIndex < totalChunks && !abortController.signal.aborted) {
       if (completedChunks.has(currentFlushIndex)) {
         const buf = completedChunks.get(currentFlushIndex)!;
@@ -292,7 +314,6 @@ export async function handleProxyStream(
         currentFlushIndex++;
         notifyFlusher();
       } else {
-        // Wait for next chunk to complete
         await new Promise<void>((resolve) => {
           flushResolvers.push(resolve);
         });
@@ -313,4 +334,3 @@ export async function handleProxyStream(
     await Promise.allSettled(workerPromises);
   }
 }
-
