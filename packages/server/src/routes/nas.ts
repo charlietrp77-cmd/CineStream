@@ -28,6 +28,11 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       episodeNumber?: number;
       preferredQuality?: '2160p' | '1080p';
       preferredBingeGroup?: string;
+      streamUrl?: string;
+      streamHeaders?: Record<string, string>;
+      streamName?: string;
+      streamSource?: string;
+      qualityBadge?: string;
     };
 
     if (!body.imdbId || !body.tmdbId || !body.mediaType) {
@@ -163,30 +168,59 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       return reply.status(400).send({ error: 'No aired episodes found to cache' });
     }
 
-    // Resolve first stream to lock bingeGroup and quality
     const firstEp = targetEpisodes[0];
-    const firstLookupId =
-      body.mediaType === 'tv'
-        ? `${body.imdbId}:${firstEp.season}:${firstEp.episode}`
-        : body.imdbId;
+    let lockedStream: any;
+    if (body.streamUrl) {
+      lockedStream = {
+        id: 'selected_stream',
+        name: body.streamName || 'Selected Stream',
+        title: body.streamName || 'Selected Stream',
+        url: body.streamUrl,
+        rawUrl: body.streamUrl,
+        headers: body.streamHeaders || {},
+        bingeGroup: body.preferredBingeGroup || null,
+        badges: {
+          resolution: (body.qualityBadge?.includes('4K') || body.qualityBadge?.includes('2160p')) ? '4K' : '1080p',
+          dolbyVision: Boolean(body.qualityBadge?.includes('DV')),
+          hdr10Plus: Boolean(body.qualityBadge?.includes('HDR10+')),
+          hdr: Boolean(body.qualityBadge?.includes('HDR')),
+          atmos: Boolean(body.qualityBadge?.includes('Atmos')),
+          trueHd: false,
+          dtsHd: false,
+          remux: Boolean(body.qualityBadge?.includes('Remux')),
+          source: body.streamSource || 'Custom',
+          sizeText: '',
+          isNasCached: false,
+        },
+        qualityScore: 100,
+      };
+    } else {
+      // Resolve first stream to lock bingeGroup and quality
+      const firstLookupId =
+        body.mediaType === 'tv'
+          ? `${body.imdbId}:${firstEp.season}:${firstEp.episode}`
+          : body.imdbId;
 
-    const streams = await aioStreams.resolveStreams(body.mediaType, firstLookupId, configOverride);
-    if (streams.length === 0) {
-      return reply.status(404).send({ error: 'No available streams found on AIOStreams for this title' });
-    }
+      const streams = await aioStreams.resolveStreams(body.mediaType, firstLookupId, configOverride);
+      if (streams.length === 0) {
+        return reply.status(404).send({ error: 'No available streams found on AIOStreams for this title' });
+      }
 
-    // Choose best stream matching preferred quality
-    let lockedStream = streams.find((s) => s.badges.resolution === (preferredQuality === '2160p' ? '4K' : '1080p'));
-    if (!lockedStream) {
-      lockedStream = streams[0];
+      // Choose best stream matching preferred quality
+      lockedStream = streams.find((s) => s.badges.resolution === (preferredQuality === '2160p' ? '4K' : '1080p'));
+      if (!lockedStream) {
+        lockedStream = streams[0];
+      }
     }
 
     const lockedBingeGroup = body.preferredBingeGroup || lockedStream.bingeGroup;
-    let qualityBadge = `${lockedStream.badges.resolution}`;
-    if (lockedStream.badges.dolbyVision) qualityBadge += ' DV';
-    else if (lockedStream.badges.hdr) qualityBadge += ' HDR';
-    if (lockedStream.badges.atmos) qualityBadge += ' Atmos';
-    if (lockedStream.badges.remux) qualityBadge += ' Remux';
+    let qualityBadge = body.qualityBadge || `${lockedStream.badges.resolution}`;
+    if (!body.qualityBadge) {
+      if (lockedStream.badges.dolbyVision) qualityBadge += ' DV';
+      else if (lockedStream.badges.hdr) qualityBadge += ' HDR';
+      if (lockedStream.badges.atmos) qualityBadge += ' Atmos';
+      if (lockedStream.badges.remux) qualityBadge += ' Remux';
+    }
 
     const cleanTitle = sanitize(showOrMovieTitle);
     const now = Date.now();
@@ -217,7 +251,7 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       }
 
       let epStream = lockedStream;
-      if (ep !== firstEp) {
+      if (ep !== firstEp && !body.streamUrl) {
         const epLookupId = `${body.imdbId}:${ep.season}:${ep.episode}`;
         const epStreams = await aioStreams.resolveStreams('tv', epLookupId, configOverride);
         const match = epStreams.find((s) => lockedBingeGroup && s.bingeGroup === lockedBingeGroup);

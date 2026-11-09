@@ -57,22 +57,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               Home
             </button>
             <button
-              onClick={() => onSelectTab('series')}
-              className={`transition-all py-1 border-b-2 ${
-                activeTab === 'series' ? 'text-white font-bold border-red-600' : 'text-gray-300 hover:text-white border-transparent'
-              }`}
-            >
-              TV Series
-            </button>
-            <button
-              onClick={() => onSelectTab('movies')}
-              className={`transition-all py-1 border-b-2 ${
-                activeTab === 'movies' ? 'text-white font-bold border-red-600' : 'text-gray-300 hover:text-white border-transparent'
-              }`}
-            >
-              Movies
-            </button>
-            <button
               onClick={() => onSelectTab('new')}
               className={`transition-all py-1 border-b-2 ${
                 activeTab === 'new' ? 'text-white font-bold border-red-600' : 'text-gray-300 hover:text-white border-transparent'
@@ -178,22 +162,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           }`}
         >
           Home
-        </button>
-        <button
-          onClick={() => onSelectTab('series')}
-          className={`transition-colors whitespace-nowrap px-3 py-1 rounded-full ${
-            activeTab === 'series' ? 'bg-white text-black font-bold' : 'text-gray-300 bg-white/10'
-          }`}
-        >
-          TV Series
-        </button>
-        <button
-          onClick={() => onSelectTab('movies')}
-          className={`transition-colors whitespace-nowrap px-3 py-1 rounded-full ${
-            activeTab === 'movies' ? 'bg-white text-black font-bold' : 'text-gray-300 bg-white/10'
-          }`}
-        >
-          Movies
         </button>
         <button
           onClick={() => onSelectTab('new')}

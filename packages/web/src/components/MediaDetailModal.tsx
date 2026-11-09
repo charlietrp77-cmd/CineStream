@@ -687,6 +687,114 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     setTimeout(() => setNasSuccessMessage(null), 4000);
   };
 
+  const handleNasCacheSpecificStream = async (stream: ResolvedStream) => {
+    const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
+    const seasonNumber = item.type === 'tv' ? selectedSeason : 0;
+    const episodeNumber = item.type === 'tv' ? (selectedEpisode?.episodeNumber || 1) : 0;
+    const scope = item.type === 'movie' ? 'movie' : 'episode';
+
+    let qualityBadge = `${stream.badges.resolution}`;
+    if (stream.badges.dolbyVision) qualityBadge += ' DV';
+    else if (stream.badges.hdr) qualityBadge += ' HDR';
+    if (stream.badges.atmos) qualityBadge += ' Atmos';
+    if (stream.badges.remux) qualityBadge += ' Remux';
+
+    // Optimistic UI updates
+    if (scope === 'episode') {
+      setNasJobs((prev) => [
+        ...prev.filter((j) => !(j.season === seasonNumber && j.episode === episodeNumber)),
+        {
+          id: `${targetImdb}:${seasonNumber}:${episodeNumber}`,
+          imdb_id: targetImdb,
+          tmdb_id: item.tmdbId,
+          media_type: 'tv',
+          title: item.title,
+          episode_title: selectedEpisode?.title || null,
+          season: seasonNumber,
+          episode: episodeNumber,
+          poster_url: item.posterUrl,
+          backdrop_url: item.backdropUrl,
+          source_url: stream.url,
+          source_headers_json: JSON.stringify(stream.headers || {}),
+          binge_group: stream.bingeGroup || null,
+          quality_badge: qualityBadge,
+          file_path: '',
+          file_size_bytes: 0,
+          downloaded_bytes: 0,
+          speed_bytes_per_sec: 0,
+          status: 'queued',
+          error_message: null,
+          requested_by_profile_id: activeProfile?.id || null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+      ]);
+    } else {
+      setNasJobs((prev) => [
+        ...prev.filter((j) => j.imdb_id !== targetImdb),
+        {
+          id: `${targetImdb}:0:0`,
+          imdb_id: targetImdb,
+          tmdb_id: item.tmdbId,
+          media_type: 'movie',
+          title: item.title,
+          episode_title: null,
+          season: 0,
+          episode: 0,
+          poster_url: item.posterUrl,
+          backdrop_url: item.backdropUrl,
+          source_url: stream.url,
+          source_headers_json: JSON.stringify(stream.headers || {}),
+          binge_group: stream.bingeGroup || null,
+          quality_badge: qualityBadge,
+          file_path: '',
+          file_size_bytes: 0,
+          downloaded_bytes: 0,
+          speed_bytes_per_sec: 0,
+          status: 'queued',
+          error_message: null,
+          requested_by_profile_id: activeProfile?.id || null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+      ]);
+    }
+
+    setNasSuccessMessage(`Queuing ${stream.badges.resolution} (${stream.badges.source}) to NAS...`);
+
+    try {
+      const res = await fetch('/api/nas/cache', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Profile-Id': activeProfile?.id || '',
+        },
+        body: JSON.stringify({
+          imdbId: targetImdb,
+          tmdbId: item.tmdbId,
+          mediaType: item.type,
+          scope,
+          seasonNumber,
+          episodeNumber,
+          streamUrl: stream.url,
+          streamHeaders: stream.headers,
+          streamName: stream.name,
+          streamSource: stream.badges.source,
+          qualityBadge,
+          preferredBingeGroup: stream.bingeGroup,
+        }),
+      });
+
+      if (res.ok) {
+        setNasSuccessMessage(`Queued ${stream.name} (${stream.badges.resolution}) for NAS caching!`);
+        setTimeout(() => setNasSuccessMessage(null), 4000);
+        fetchNasJobs();
+      }
+    } catch (e) {
+      console.error('Failed to queue stream to NAS:', e);
+    }
+  };
+
   const handleDeviceDownloadEpisode = async (seasonNum: number, ep: TvSeasonEpisode) => {
     const targetImdb = currentImdbId && currentImdbId.startsWith('tt') ? currentImdbId : item.imdbId;
     const downloadId = `${targetImdb}_${seasonNum}_${ep.episodeNumber}`;
@@ -1453,6 +1561,27 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                         <span className="text-gray-400">{stream.badges.sizeText}</span>
                       )}
                     </div>
+
+                    {/* Cache this specific stream to NAS */}
+                    {!stream.badges.isNasCached ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleNasCacheSpecificStream(stream);
+                        }}
+                        className="bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white p-2 rounded-full transition-colors border border-amber-500/30"
+                        title={`Cache this ${stream.badges.resolution} (${stream.badges.source}${stream.badges.sizeText ? ` • ${stream.badges.sizeText}` : ''}) stream to NAS`}
+                      >
+                        <Zap className="w-3.5 h-3.5 fill-current" />
+                      </button>
+                    ) : (
+                      <span
+                        className="bg-emerald-600/20 text-emerald-300 p-2 rounded-full border border-emerald-500/30 flex items-center justify-center"
+                        title="Stream already cached on local NAS"
+                      >
+                        <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
+                      </span>
+                    )}
 
                     {/* Download this specific stream */}
                     <button
