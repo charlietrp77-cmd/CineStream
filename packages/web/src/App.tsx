@@ -23,6 +23,7 @@ interface ActivePlayerState {
   episode?: number;
   isNasCached?: boolean;
   isOfflineFile?: boolean;
+  provider?: string;
 }
 
 export const App: React.FC = () => {
@@ -251,6 +252,7 @@ export const App: React.FC = () => {
                   season: matched.season,
                   episode: matched.episode,
                   isOfflineFile: true,
+                  provider: 'Offline Device',
                 });
               }
             }}
@@ -378,6 +380,7 @@ export const App: React.FC = () => {
               season: 0,
               episode: 0,
               isNasCached: stream.badges.isNasCached,
+              provider: stream.badges.source,
             });
           }}
         />
@@ -408,6 +411,7 @@ export const App: React.FC = () => {
             season: oi.season,
             episode: oi.episode,
             isOfflineFile: true,
+            provider: 'Offline Device',
           });
         }}
         onPlayNasItem={(job) => {
@@ -421,6 +425,7 @@ export const App: React.FC = () => {
             season: job.season,
             episode: job.episode,
             isNasCached: true,
+            provider: 'NAS Cache',
           });
         }}
       />

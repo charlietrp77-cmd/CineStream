@@ -15,10 +15,12 @@ import {
   Copy,
   Check,
   AlertTriangle,
+  Download,
 } from 'lucide-react';
 import { TrackInfo } from '@cinestream/capacitor-native-player';
 import { nativePlayer } from '../bridge/nativePlayer';
 import { useProfileStore } from '../store/useProfileStore';
+import { ProviderBadge } from './ProviderBadge';
 
 interface PlayerOverlayProps {
   streamUrl: string;
@@ -30,6 +32,7 @@ interface PlayerOverlayProps {
   episode?: number;
   isNasCached?: boolean;
   isOfflineFile?: boolean;
+  provider?: string;
   onClose: () => void;
   onNextEpisode?: () => void;
 }
@@ -44,6 +47,7 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
   episode,
   isNasCached,
   isOfflineFile,
+  provider,
   onClose,
   onNextEpisode,
 }) => {
@@ -66,14 +70,66 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
     ? streamUrl
     : `${window.location.origin}${streamUrl}`;
 
-  const copyStreamUrl = () => {
-    navigator.clipboard.writeText(absoluteStreamUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    // 1. Try modern clipboard API if available and in secure context
+    if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (_) {}
+    }
+
+    // 2. Reliable fallback for HTTP non-secure contexts
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.top = '0';
+      textArea.style.left = '0';
+      textArea.style.width = '2em';
+      textArea.style.height = '2em';
+      textArea.style.padding = '0';
+      textArea.style.border = 'none';
+      textArea.style.outline = 'none';
+      textArea.style.boxShadow = 'none';
+      textArea.style.background = 'transparent';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      if (successful) return true;
+    } catch (err) {
+      console.error('execCommand copy error:', err);
+    }
+    return false;
+  };
+
+  const copyStreamUrl = async () => {
+    const ok = await copyToClipboard(absoluteStreamUrl);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    }
+  };
+
+  const downloadVlcM3u = () => {
+    const m3uContent = `#EXTM3U\n#EXTINF:-1,${title}${episodeTitle ? ` - ${episodeTitle}` : ''}\n${absoluteStreamUrl}\n`;
+    const blob = new Blob([m3uContent], { type: 'audio/x-mpegurl' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeFilename = `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}.m3u`;
+    a.download = safeFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const openInVlc = () => {
-    window.location.href = `vlc://${absoluteStreamUrl}`;
+    // Also trigger m3u download as instant fallback if vlc:// is unregistered on Windows
+    downloadVlcM3u();
   };
 
   const osdTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -241,6 +297,8 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
 
           {/* Quality & Storage Badges */}
           <div className="flex items-center gap-2">
+            {provider && <ProviderBadge source={provider} />}
+
             {isNasCached && (
               <span className="flex items-center gap-1 bg-amber-500 text-black px-2 py-0.5 rounded text-xs font-black shadow">
                 <Zap className="w-3.5 h-3.5 fill-black" />
@@ -263,42 +321,52 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
             <button
               onClick={copyStreamUrl}
               title="Copy Stream URL (for VLC, MPV, or PotPlayer)"
-              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-colors"
+              className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-all"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copied ? 'Copied' : 'Copy Stream'}</span>
             </button>
 
             <button
-              onClick={openInVlc}
-              title="Open stream directly in VLC Media Player"
-              className="hidden sm:flex items-center gap-1.5 bg-orange-600/80 hover:bg-orange-600 text-white px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-colors"
+              onClick={downloadVlcM3u}
+              title="Download playlist to open instantly in VLC"
+              className="hidden sm:flex items-center gap-1.5 bg-orange-600/80 hover:bg-orange-600 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-all shadow"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>VLC</span>
+              <Download className="w-3.5 h-3.5" />
+              <span>VLC (.m3u)</span>
             </button>
           </div>
         </div>
 
         {/* Browser Codec Error Modal */}
         {playerError && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-md p-6">
-            <div className="max-w-md w-full bg-[#1c1c1e] border border-red-500/40 rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 sm:p-6">
+            <div className="max-w-lg w-full bg-[#1c1c1e] border border-red-500/40 rounded-2xl p-6 text-center space-y-4 shadow-2xl">
               <div className="w-12 h-12 rounded-full bg-red-500/20 text-red-500 flex items-center justify-center mx-auto">
                 <AlertTriangle className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-white">Browser Playback Notice</h3>
+              <div>
+                <h3 className="text-lg font-bold text-white">Browser Playback Notice</h3>
+                {provider && (
+                  <div className="mt-1 flex justify-center">
+                    <ProviderBadge source={provider} />
+                  </div>
+                )}
+              </div>
               <p className="text-xs text-gray-300 leading-relaxed">
-                Your browser could not decode this stream format directly (likely MKV container, TrueHD/DTS audio, or HEVC video).
-                Stream smoothly by launching VLC or copying the link to any media player.
+                Your browser could not decode this stream format directly (MKV container, TrueHD/DTS audio, or HEVC video).
+                Stream smoothly by launching directly in VLC or copying the link.
               </p>
-              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+
+              {/* Action Buttons: VLC (.m3u) + Copy Button */}
+              <div className="flex flex-col sm:flex-row gap-2 pt-1">
                 <button
-                  onClick={openInVlc}
+                  onClick={downloadVlcM3u}
                   className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow transition-all"
+                  title="Downloads a .m3u file that opens immediately in VLC"
                 >
-                  <ExternalLink className="w-4 h-4" />
-                  Open in VLC
+                  <Download className="w-4 h-4" />
+                  Open in VLC (.m3u)
                 </button>
                 <button
                   onClick={copyStreamUrl}
@@ -308,10 +376,33 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
                   {copied ? 'Copied URL!' : 'Copy Stream URL'}
                 </button>
               </div>
+
+              {/* Visible Direct Stream Link Box */}
+              <div className="space-y-1.5 text-left pt-2">
+                <label className="text-[11px] font-semibold text-gray-400">Direct Stream Link (VLC / MPV / PotPlayer):</label>
+                <div className="flex items-center gap-1.5 bg-black/60 border border-white/20 rounded-xl p-1.5">
+                  <input
+                    type="text"
+                    readOnly
+                    value={absoluteStreamUrl}
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                    className="flex-1 bg-transparent border-none text-[11px] text-gray-300 font-mono focus:outline-none select-all px-2 overflow-ellipsis"
+                  />
+                  <button
+                    onClick={copyStreamUrl}
+                    className="px-2.5 py-1 bg-white/15 hover:bg-white/25 active:scale-95 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
+                    title="Copy Link"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <button
                   onClick={handleClose}
-                  className="text-xs text-gray-400 hover:text-white underline pt-2"
+                  className="text-xs text-gray-400 hover:text-white underline pt-1"
                 >
                   Return to CineStream
                 </button>

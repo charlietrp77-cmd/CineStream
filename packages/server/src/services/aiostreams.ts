@@ -84,17 +84,20 @@ export function parseStreamBadges(stream: AioRawStream): StreamBadges {
   const remux = /\b(REMUX)\b/i.test(combined);
 
   // Provider / Source extraction
+  const bingeLower = (stream.behaviorHints?.bingeGroup || (stream as any).bingeGroup || '').toLowerCase();
   let source = 'Debrid';
-  if (/easynews/i.test(combined)) {
+  if (bingeLower.includes('easynews') || /easynews/i.test(combined) || /\(EN\)/i.test(combined)) {
     source = 'Easynews';
-  } else if (/real-?debrid/i.test(combined) || /\bRD\b/.test(combined)) {
-    source = 'Real-Debrid';
-  } else if (/torbox/i.test(combined)) {
-    source = 'TorBox';
-  } else if (/alldebrid/i.test(combined) || /\bAD\b/.test(combined)) {
-    source = 'AllDebrid';
-  } else if (/premiumize/i.test(combined) || /\bPM\b/.test(combined)) {
+  } else if (bingeLower.includes('premiumize') || /premiumize/i.test(combined) || /\(PM\)/i.test(combined) || /\bPM\b/.test(combined)) {
     source = 'Premiumize';
+  } else if (bingeLower.includes('realdebrid') || /real-?debrid/i.test(combined) || /\(RD\)/i.test(combined) || /\bRD\b/.test(combined)) {
+    source = 'Real-Debrid';
+  } else if (bingeLower.includes('torbox') || /torbox/i.test(combined) || /\(TB\)/i.test(combined)) {
+    source = 'TorBox';
+  } else if (bingeLower.includes('alldebrid') || /alldebrid/i.test(combined) || /\(AD\)/i.test(combined)) {
+    source = 'AllDebrid';
+  } else if (bingeLower.includes('debridlink') || /debrid-?link/i.test(combined) || /\(DL\)/i.test(combined)) {
+    source = 'Debrid-Link';
   } else if (/usenet/i.test(combined)) {
     source = 'Usenet';
   }

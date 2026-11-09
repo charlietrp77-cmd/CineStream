@@ -15,6 +15,7 @@ import { CatalogItem, ResolvedStream, TvSeasonEpisode } from '../types/api';
 import { useProfileStore } from '../store/useProfileStore';
 import { offlineDownloader } from '../bridge/offlineDownloader';
 import { useOfflineStore } from '../store/useOfflineStore';
+import { ProviderBadge } from './ProviderBadge';
 
 interface MediaDetailModalProps {
   item: CatalogItem;
@@ -41,6 +42,9 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
   // My List State
   const [isInMyList, setIsInMyList] = useState(false);
+
+  // Provider Filter State
+  const [providerFilter, setProviderFilter] = useState<string>('all');
 
   // NAS Cache Dropdown
   const [isNasMenuOpen, setIsNasMenuOpen] = useState(false);
@@ -210,9 +214,42 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     setTimeout(() => setNasSuccessMessage(null), 4000);
   };
 
+  const cleanStreamDetails = (stream: ResolvedStream) => {
+    const parts: string[] = [];
+    if (stream.badges.resolution) parts.push(stream.badges.resolution);
+    if (stream.badges.remux) parts.push('REMUX');
+    if (stream.badges.dolbyVision) parts.push('Dolby Vision');
+    if (stream.badges.hdr10Plus) parts.push('HDR10+');
+    else if (stream.badges.hdr) parts.push('HDR');
+    if (stream.badges.atmos) parts.push('Atmos');
+    if (stream.badges.trueHd) parts.push('TrueHD');
+    if (stream.badges.dtsHd) parts.push('DTS-HD');
+    if (stream.badges.sizeText) parts.push(stream.badges.sizeText);
+
+    // Release group from title or bingeGroup
+    const groupMatch = /🏷️\s*([^\n\r]+)/.exec(stream.title);
+    if (groupMatch) {
+      parts.push(groupMatch[1].trim());
+    } else if (stream.bingeGroup) {
+      const bgParts = stream.bingeGroup.split('|');
+      if (bgParts.length > 2) {
+        const last = bgParts[bgParts.length - 1];
+        if (last && !last.includes('.')) parts.push(last);
+      }
+    }
+
+    return parts.join(' • ') || stream.title.replace(/\n/g, ' ');
+  };
+
+  const availableProviders = Array.from(new Set(streams.map((s) => s.badges.source || 'Debrid')));
+  const filteredStreams = providerFilter === 'all'
+    ? streams
+    : streams.filter((s) => (s.badges.source || 'Debrid') === providerFilter);
+
   const handlePlayBest = () => {
-    if (streams.length > 0) {
-      onPlayStream(streams[0], item.title, selectedEpisode?.title);
+    const streamToPlay = filteredStreams.length > 0 ? filteredStreams[0] : streams[0];
+    if (streamToPlay) {
+      onPlayStream(streamToPlay, item.title, selectedEpisode?.title);
     }
   };
 
@@ -296,7 +333,11 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               className="flex items-center gap-2 bg-white text-black hover:bg-white/90 disabled:opacity-50 px-6 py-2.5 rounded font-bold text-sm shadow transition-all"
             >
               <Play className="w-4 h-4 fill-black" />
-              <span>Play Best Stream</span>
+              <span>
+                {streams.length > 0
+                  ? `Play Best (${(filteredStreams.length > 0 ? filteredStreams[0] : streams[0]).badges.source || 'Stream'} • ${(filteredStreams.length > 0 ? filteredStreams[0] : streams[0]).badges.resolution})`
+                  : 'Play Best Stream'}
+              </span>
             </button>
 
             {/* Cache to NAS Button & Dropdown */}
@@ -456,17 +497,49 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
           {/* Available Streams Section */}
           <div className="space-y-3 pt-4 border-t border-white/10">
-            <h3 className="font-bold text-lg flex items-center gap-2">
-              <span>Available Streams</span>
-              {loadingStreams && <span className="text-xs text-gray-400 font-normal">Loading streams...</span>}
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <span>Available Streams</span>
+                {loadingStreams && <span className="text-xs text-gray-400 font-normal">Loading streams...</span>}
+              </h3>
 
-            {streams.length === 0 && !loadingStreams && (
-              <div className="text-xs text-gray-500 py-3">No playable streams currently available.</div>
+              {/* Provider Filter Tabs */}
+              {availableProviders.length > 1 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    onClick={() => setProviderFilter('all')}
+                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                      providerFilter === 'all'
+                        ? 'bg-white text-black shadow'
+                        : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                    }`}
+                  >
+                    All ({streams.length})
+                  </button>
+                  {availableProviders.map((prov) => {
+                    const count = streams.filter((s) => (s.badges.source || 'Debrid') === prov).length;
+                    return (
+                      <button
+                        key={prov}
+                        onClick={() => setProviderFilter(prov)}
+                        className={`transition-all rounded-full ${
+                          providerFilter === prov ? 'ring-2 ring-white ring-offset-2 ring-offset-[#181818] shadow' : 'opacity-70 hover:opacity-100'
+                        }`}
+                      >
+                        <ProviderBadge source={prov} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {filteredStreams.length === 0 && !loadingStreams && (
+              <div className="text-xs text-gray-500 py-3">No playable streams currently available for this selection.</div>
             )}
 
             <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-              {streams.map((stream) => (
+              {filteredStreams.map((stream) => (
                 <div
                   key={stream.id}
                   onClick={() => onPlayStream(stream, item.title, selectedEpisode?.title)}
@@ -477,15 +550,18 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   }`}
                 >
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 font-semibold text-sm">
+                    <div className="flex flex-wrap items-center gap-2 font-semibold text-sm">
                       <span>{stream.name}</span>
+                      <ProviderBadge source={stream.badges.source} />
                       {stream.badges.isNasCached && (
-                        <span className="bg-amber-500 text-black px-1.5 py-0.2 rounded text-[10px] font-black uppercase">
+                        <span className="bg-amber-500 text-black px-1.5 py-0.5 rounded text-[10px] font-black uppercase">
                           ⚡ Local Gigabit
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-gray-400 line-clamp-1">{stream.title}</div>
+                    <div className="text-xs text-gray-300 font-medium">
+                      {cleanStreamDetails(stream)}
+                    </div>
                   </div>
 
                   {/* Badges & Play Button */}
