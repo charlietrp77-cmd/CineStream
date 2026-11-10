@@ -1,5 +1,6 @@
 import { fetch as undiciFetch } from 'undici';
 import { config } from '../config';
+import { appSettings } from './appSettings';
 
 export interface StreamBadges {
   resolution: '4K' | '1080p' | '720p' | 'SD';
@@ -320,8 +321,9 @@ class AioStreamsService {
     id: string,
     configOverride?: string | null
   ): Promise<AioRawStream[]> {
-    const rawConfig = configOverride || config.aiostreamsUserConfig;
+    const rawConfig = configOverride || config.aiostreamsUserConfig || appSettings.get('aiostreams_user_config');
     if (!rawConfig) {
+      console.warn('[AIOStreams] No AIOStreams configuration found (AIOSTREAMS_USER_CONFIG is empty). Visit http://<host>:3001 to configure scrapers or check /diagnostics.');
       return [];
     }
 

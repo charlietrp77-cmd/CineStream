@@ -1562,7 +1562,23 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             </div>
 
             {filteredStreams.length === 0 && !loadingStreams && (
-              <div className="text-xs text-gray-500 py-3">No playable streams currently available for this selection.</div>
+              <div className="bg-white/5 border border-white/10 rounded-lg p-4 my-2 space-y-2">
+                <div className="text-sm font-semibold text-gray-200">No playable streams currently available</div>
+                <div className="text-xs text-gray-400">
+                  If this is a fresh deployment, ensure your scrapers are enabled in AIOStreams at{' '}
+                  <span className="font-mono text-amber-400">http://&lt;your-server-ip&gt;:3001</span> (login: admin / cinestream123) and that your token is set in your configuration.
+                </div>
+                <div>
+                  <a
+                    href="/diagnostics"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center text-xs text-amber-400 hover:text-amber-300 font-medium underline"
+                  >
+                    Open System Diagnostics &rarr;
+                  </a>
+                </div>
+              </div>
             )}
 
             <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
