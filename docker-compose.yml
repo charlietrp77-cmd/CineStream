@@ -8,8 +8,30 @@ services:
       - "443:443"
     environment:
       - DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -n "$$DUCKDNS_SUBDOMAIN" ] && [ "$$DUCKDNS_SUBDOMAIN" != "mycinestream" ] && [ "$$DUCKDNS_SUBDOMAIN" != "yoursubdomain" ]; then
+          cat <<EOF > /etc/caddy/Caddyfile
+        {
+            email admin@cinestream.local
+        }
+        $${DUCKDNS_SUBDOMAIN}.duckdns.org {
+            reverse_proxy cinestream:3000
+        }
+        :80 {
+            reverse_proxy cinestream:3000
+        }
+        EOF
+        else
+          cat <<EOF > /etc/caddy/Caddyfile
+        :80 {
+            reverse_proxy cinestream:3000
+        }
+        EOF
+        fi
+        caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
