@@ -16,6 +16,7 @@ import {
 import { useProfileStore } from '../store/useProfileStore';
 import { useOfflineStore } from '../store/useOfflineStore';
 import { ProviderQuota } from '../types/api';
+import { PremiumizeIcon } from './ProviderBadge';
 
 interface NavbarProps {
   onOpenSearch: () => void;
@@ -30,7 +31,7 @@ const ProviderQuotaIcon: React.FC<{ provider: string }> = ({ provider }) => {
     case 'torbox':
       return <Box className="w-3.5 h-3.5 text-emerald-400 stroke-[2.2]" />;
     case 'premiumize':
-      return <Cloud className="w-3.5 h-3.5 text-blue-400 fill-blue-400/40" />;
+      return <PremiumizeIcon className="w-3.5 h-3.5" />;
     case 'easynews':
       return <FileText className="w-3.5 h-3.5 text-amber-400" />;
     case 'realdebrid':

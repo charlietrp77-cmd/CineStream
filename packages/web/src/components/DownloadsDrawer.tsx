@@ -24,6 +24,7 @@ import { DiskSpaceInfo, NasCacheItem, OfflineMediaItem, ProviderQuota, ResolvedS
 import { useOfflineStore } from '../store/useOfflineStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { offlineDownloader } from '../bridge/offlineDownloader';
+import { PremiumizeIcon } from './ProviderBadge';
 
 interface DownloadsDrawerProps {
   isOpen: boolean;
@@ -308,7 +309,7 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             {q.provider === 'torbox' && <Box className="w-4 h-4 text-emerald-400 stroke-[2.2]" />}
-                            {q.provider === 'premiumize' && <Cloud className="w-4 h-4 text-blue-400 fill-blue-400/40" />}
+                            {q.provider === 'premiumize' && <PremiumizeIcon className="w-4 h-4" />}
                             {q.provider === 'easynews' && <FileText className="w-4 h-4 text-amber-400" />}
                             {q.provider === 'realdebrid' && <ShieldCheck className="w-4 h-4 text-emerald-400" />}
                             {q.provider === 'alldebrid' && <Server className="w-4 h-4 text-orange-400" />}
