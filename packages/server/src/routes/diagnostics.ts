@@ -304,6 +304,7 @@ export async function diagnosticsRoutes(fastify: FastifyInstance, _opts: Fastify
       config.premiumizeApiKey ||
       config.realdebridApiKey ||
       config.alldebridApiKey ||
+      config.althubApiKey ||
       (config.easynewsUsername && config.easynewsPassword)
     );
 

@@ -28,6 +28,7 @@ export interface AppConfig {
   premiumizeApiKey: string;
   easynewsUsername: string;
   easynewsPassword: string;
+  althubApiKey: string;
   realdebridApiKey: string;
   alldebridApiKey: string;
   radarrUrl: string;
@@ -81,6 +82,7 @@ export const config: AppConfig = {
   premiumizeApiKey: sanitizeSecret(process.env.PREMIUMIZE_API_KEY),
   easynewsUsername: sanitizeSecret(process.env.EASYNEWS_USERNAME),
   easynewsPassword: sanitizeSecret(process.env.EASYNEWS_PASSWORD),
+  althubApiKey: sanitizeSecret(process.env.ALTHUB_API_KEY),
   realdebridApiKey: sanitizeSecret(process.env.REALDEBRID_API_KEY || process.env.RD_API_KEY),
   alldebridApiKey: sanitizeSecret(process.env.ALLDEBRID_API_KEY),
   radarrUrl: (process.env.RADARR_URL || '').replace(/\/$/, ''),

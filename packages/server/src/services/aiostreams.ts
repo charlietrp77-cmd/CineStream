@@ -105,6 +105,8 @@ export function parseStreamBadges(stream: AioRawStream, isEpisode: boolean = fal
     source = 'Real-Debrid';
   } else if (bingeLower.includes('torbox') || /torbox/i.test(combined) || /\(TB\)/i.test(combined) || /\[TB\+?\]/i.test(combined)) {
     source = 'TorBox';
+  } else if (bingeLower.includes('althub') || /althub/i.test(combined)) {
+    source = 'AltHub';
   } else if (bingeLower.includes('alldebrid') || /alldebrid/i.test(combined) || /\(AD\)/i.test(combined) || /\[AD\+?\]/i.test(combined)) {
     source = 'AllDebrid';
   } else if (bingeLower.includes('debridlink') || /debrid-?link/i.test(combined) || /\(DL\)/i.test(combined) || /\[DL\+?\]/i.test(combined)) {
@@ -456,6 +458,77 @@ class AioStreamsService {
     }
   }
 
+  private async fetchFromAltHub(
+    key: string,
+    type: 'movie' | 'series',
+    id: string
+  ): Promise<AioRawStream[]> {
+    try {
+      let imdbId = id;
+      let season = 0;
+      let episode = 0;
+      if (id.includes(':')) {
+        const parts = id.split(':');
+        imdbId = parts[0];
+        season = parseInt(parts[1], 10) || 1;
+        episode = parseInt(parts[2], 10) || 1;
+      }
+      const imdbNum = imdbId.replace(/^tt/i, '');
+
+      let url = `https://api.althub.co.za/api?apikey=${encodeURIComponent(key)}&o=json`;
+      if (type === 'series' && season > 0 && episode > 0) {
+        url += `&t=tvsearch&imdbid=${encodeURIComponent(imdbNum)}&season=${season}&ep=${episode}`;
+      } else {
+        url += `&t=movie&imdbid=${encodeURIComponent(imdbNum)}`;
+      }
+
+      const res = await undiciFetch(url, {
+        headers: { 'User-Agent': 'CineStream/1.0.0' },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!res.ok) {
+        console.warn(`[AltHub] Newznab search returned HTTP ${res.status}`);
+        return [];
+      }
+
+      const json = (await res.json()) as any;
+      let rawItems = json?.channel?.item || [];
+      if (!Array.isArray(rawItems)) {
+        rawItems = rawItems ? [rawItems] : [];
+      }
+
+      const streams: AioRawStream[] = [];
+      for (const item of rawItems) {
+        const title = item.title || 'AltHub NZB Release';
+        const nzbLink = item.link || item.enclosure?.['@attributes']?.url || item.enclosure?.url;
+        if (!nzbLink) continue;
+
+        let sizeBytes = parseInt(item.size || item.enclosure?.['@attributes']?.length || '0', 10);
+        if (isNaN(sizeBytes)) sizeBytes = 0;
+        const sizeGb = sizeBytes > 0 ? (sizeBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB' : '';
+
+        streams.push({
+          name: 'AltHub (NZB)',
+          title: `${title}\n💾 ${sizeGb}`,
+          url: nzbLink,
+          nzbUrl: nzbLink,
+          behaviorHints: {
+            bingeGroup: 'althub',
+            filename: title,
+            videoSize: sizeBytes,
+            nzbUrl: nzbLink,
+          },
+        });
+      }
+
+      return streams;
+    } catch (err: any) {
+      console.warn('[AltHub] Newznab search error:', err.message);
+      return [];
+    }
+  }
+
   private async fetchFromAioStreams(
     type: 'movie' | 'series',
     id: string,
@@ -552,6 +625,11 @@ class AioStreamsService {
     // 6. Auto-enabled Easynews Direct
     if (config.easynewsUsername && config.easynewsPassword) {
       tasks.push(this.fetchFromEasynews(config.easynewsUsername, config.easynewsPassword, stremioType, id));
+    }
+
+    // 7. Auto-enabled AltHub (Newznab Indexer)
+    if (config.althubApiKey) {
+      tasks.push(this.fetchFromAltHub(config.althubApiKey, stremioType, id));
     }
 
     if (tasks.length === 0) {

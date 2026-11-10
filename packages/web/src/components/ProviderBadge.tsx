@@ -55,6 +55,18 @@ export const ProviderBadge: React.FC<ProviderBadgeProps> = ({ source, className 
     );
   }
 
+  if (s.includes('althub')) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider shadow-sm ${className}`}
+        title="AltHub Usenet Indexer (NZB)"
+      >
+        <span className="w-2 h-2 rounded-full bg-cyan-400" />
+        ⚡ AltHub (NZB)
+      </span>
+    );
+  }
+
   if (s.includes('alldebrid') || s.includes('ad')) {
     return (
       <span
