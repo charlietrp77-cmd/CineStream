@@ -80,6 +80,30 @@ export const ProviderBadge: React.FC<ProviderBadgeProps> = ({ source, className 
     );
   }
 
+  if (s.includes('nzbgeek') || s.includes('geek')) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 bg-yellow-500/25 text-yellow-300 border border-yellow-500/50 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider shadow-sm ${className}`}
+        title="NZBGeek Usenet Indexer (NZB)"
+      >
+        <span className="w-2 h-2 rounded-full bg-yellow-400" />
+        ⚡ NZBGeek (NZB)
+      </span>
+    );
+  }
+
+  if (s.includes('drunkenslug') || s.includes('slug')) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 bg-lime-500/25 text-lime-300 border border-lime-500/50 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider shadow-sm ${className}`}
+        title="DrunkenSlug Usenet Indexer (NZB)"
+      >
+        <span className="w-2 h-2 rounded-full bg-lime-400" />
+        ⚡ DrunkenSlug (NZB)
+      </span>
+    );
+  }
+
   if (s.includes('alldebrid') || s.includes('ad')) {
     return (
       <span

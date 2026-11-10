@@ -367,44 +367,8 @@ priority = 0
       }
     } catch (_) {}
 
-    // D. Auto-register AltHub Newznab Indexer in Radarr
-    if (config.althubApiKey) {
-      try {
-        const idxRes = await undiciFetch('http://radarr:7878/api/v3/indexer', { headers });
-        if (idxRes.ok) {
-          const indexers: any = await idxRes.json();
-          const hasAltHub = Array.isArray(indexers) && indexers.some((i: any) => i.name?.toLowerCase().includes('althub'));
-          if (!hasAltHub) {
-            await undiciFetch('http://radarr:7878/api/v3/indexer', {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                enableRss: true,
-                enableAutomaticSearch: true,
-                enableInteractiveSearch: true,
-                supportsRss: true,
-                supportsSearch: true,
-                protocol: 'usenet',
-                name: 'altHUB',
-                fields: [
-                  { name: 'base_url', value: 'https://api.althub.co.za' },
-                  { name: 'api_path', value: '/api' },
-                  { name: 'apikey', value: config.althubApiKey },
-                  { name: 'categories', value: [2000, 2030, 2040, 2045, 2050, 2060] },
-                  { name: 'additionalParameters', value: '' },
-                ],
-                implementation: 'Newznab',
-                configContract: 'NewznabSettings',
-                priority: 25,
-              }),
-            });
-            console.log('✅ [Bootstrap] Registered AltHub as Newznab indexer in Radarr!');
-          }
-        }
-      } catch (err: any) {
-        console.warn('[Bootstrap] AltHub Radarr registration notice:', err.message);
-      }
-    }
+    // D. Auto-register Newznab Indexers (AltHub, NZBGeek, DrunkenSlug) in Radarr
+    await this.registerNewznabIndexers('radarr', 'http://radarr:7878', apiKey, [2000, 2030, 2040, 2045, 2050, 2060]);
   }
 
   private async configureSonarr(apiKey: string, sabKey: string): Promise<void> {
@@ -478,43 +442,76 @@ priority = 0
       }
     } catch (_) {}
 
-    // D. Auto-register AltHub Newznab Indexer in Sonarr
-    if (config.althubApiKey) {
-      try {
-        const idxRes = await undiciFetch('http://sonarr:8989/api/v3/indexer', { headers });
-        if (idxRes.ok) {
-          const indexers: any = await idxRes.json();
-          const hasAltHub = Array.isArray(indexers) && indexers.some((i: any) => i.name?.toLowerCase().includes('althub'));
-          if (!hasAltHub) {
-            await undiciFetch('http://sonarr:8989/api/v3/indexer', {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                enableRss: true,
-                enableAutomaticSearch: true,
-                enableInteractiveSearch: true,
-                supportsRss: true,
-                supportsSearch: true,
-                protocol: 'usenet',
-                name: 'altHUB',
-                fields: [
-                  { name: 'base_url', value: 'https://api.althub.co.za' },
-                  { name: 'api_path', value: '/api' },
-                  { name: 'apikey', value: config.althubApiKey },
-                  { name: 'categories', value: [5000, 5020, 5030, 5040, 5045] },
-                  { name: 'additionalParameters', value: '' },
-                ],
-                implementation: 'Newznab',
-                configContract: 'NewznabSettings',
-                priority: 25,
-              }),
-            });
-            console.log('✅ [Bootstrap] Registered AltHub as Newznab indexer in Sonarr!');
+    // D. Auto-register Newznab Indexers (AltHub, NZBGeek, DrunkenSlug) in Sonarr
+    await this.registerNewznabIndexers('sonarr', 'http://sonarr:8989', apiKey, [5000, 5020, 5030, 5040, 5045]);
+  }
+
+  private async registerNewznabIndexers(
+    target: 'radarr' | 'sonarr',
+    serviceUrl: string,
+    apiKey: string,
+    categories: number[]
+  ): Promise<void> {
+    const indexersToRegister = [
+      { name: 'altHUB', baseUrl: 'https://api.althub.co.za', key: config.althubApiKey },
+      { name: 'NZBGeek', baseUrl: 'https://api.nzbgeek.info', key: config.nzbgeekApiKey },
+      { name: 'DrunkenSlug', baseUrl: 'https://api.drunkenslug.com', key: config.drunkenslugApiKey },
+    ].filter((i) => Boolean(i.key));
+
+    if (indexersToRegister.length === 0) return;
+
+    const headers = {
+      'X-Api-Key': apiKey,
+      'Content-Type': 'application/json',
+    };
+
+    try {
+      const idxRes = await undiciFetch(`${serviceUrl}/api/v3/indexer`, { headers });
+      if (!idxRes.ok) return;
+      const existing: any = await idxRes.json();
+      const existingList = Array.isArray(existing) ? existing : [];
+
+      for (const idx of indexersToRegister) {
+        const hostname = new URL(idx.baseUrl).hostname.toLowerCase();
+        const alreadyRegistered = existingList.some(
+          (e: any) =>
+            e.name?.toLowerCase().includes(idx.name.toLowerCase()) ||
+            e.fields?.some((f: any) => f.name === 'base_url' && f.value?.toLowerCase().includes(hostname))
+        );
+        if (!alreadyRegistered) {
+          const res = await undiciFetch(`${serviceUrl}/api/v3/indexer`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              enableRss: true,
+              enableAutomaticSearch: true,
+              enableInteractiveSearch: true,
+              supportsRss: true,
+              supportsSearch: true,
+              protocol: 'usenet',
+              name: idx.name,
+              fields: [
+                { name: 'base_url', value: idx.baseUrl },
+                { name: 'api_path', value: '/api' },
+                { name: 'apikey', value: idx.key },
+                { name: 'categories', value: categories },
+                { name: 'additionalParameters', value: '' },
+              ],
+              implementation: 'Newznab',
+              configContract: 'NewznabSettings',
+              priority: 25,
+            }),
+          });
+          if (res.ok) {
+            console.log(`✅ [Bootstrap] Registered ${idx.name} as Newznab indexer in ${target === 'radarr' ? 'Radarr' : 'Sonarr'}!`);
+          } else {
+            const errText = await res.text().catch(() => '');
+            console.warn(`[Bootstrap] Failed to register ${idx.name} in ${target}: HTTP ${res.status} ${errText}`);
           }
         }
-      } catch (err: any) {
-        console.warn('[Bootstrap] AltHub Sonarr registration notice:', err.message);
       }
+    } catch (err: any) {
+      console.warn(`[Bootstrap] Newznab indexer registration in ${target} error:`, err.message);
     }
   }
 

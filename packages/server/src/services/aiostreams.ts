@@ -110,6 +110,10 @@ export function parseStreamBadges(stream: AioRawStream, isEpisode: boolean = fal
     source = 'TorBox';
   } else if (bingeLower.includes('althub') || /althub/i.test(combined)) {
     source = 'AltHub';
+  } else if (bingeLower.includes('nzbgeek') || /nzbgeek/i.test(combined)) {
+    source = 'NZBGeek';
+  } else if (bingeLower.includes('drunkenslug') || /drunkenslug/i.test(combined)) {
+    source = 'DrunkenSlug';
   } else if (bingeLower.includes('alldebrid') || /alldebrid/i.test(combined) || /\(AD\)/i.test(combined) || /\[AD\+?\]/i.test(combined)) {
     source = 'AllDebrid';
   } else if (bingeLower.includes('debridlink') || /debrid-?link/i.test(combined) || /\(DL\)/i.test(combined) || /\[DL\+?\]/i.test(combined)) {
@@ -461,7 +465,9 @@ class AioStreamsService {
     }
   }
 
-  private async fetchFromAltHub(
+  private async fetchFromNewznab(
+    name: string,
+    baseUrl: string,
     key: string,
     type: 'movie' | 'series',
     id: string
@@ -478,7 +484,7 @@ class AioStreamsService {
       }
       const imdbNum = imdbId.replace(/^tt/i, '');
 
-      let url = `https://api.althub.co.za/api?apikey=${encodeURIComponent(key)}&o=json`;
+      let url = `${baseUrl.replace(/\/$/, '')}/api?apikey=${encodeURIComponent(key)}&o=json`;
       if (type === 'series' && season > 0 && episode > 0) {
         url += `&t=tvsearch&imdbid=${encodeURIComponent(imdbNum)}&season=${season}&ep=${episode}`;
       } else {
@@ -491,7 +497,7 @@ class AioStreamsService {
       });
 
       if (!res.ok) {
-        console.warn(`[AltHub] Newznab search returned HTTP ${res.status}`);
+        console.warn(`[${name}] Newznab search returned HTTP ${res.status}`);
         return [];
       }
 
@@ -503,7 +509,7 @@ class AioStreamsService {
 
       const streams: AioRawStream[] = [];
       for (const item of rawItems) {
-        const title = item.title || 'AltHub NZB Release';
+        const title = item.title || `${name} NZB Release`;
         const nzbLink = item.link || item.enclosure?.['@attributes']?.url || item.enclosure?.url;
         if (!nzbLink) continue;
 
@@ -512,12 +518,12 @@ class AioStreamsService {
         const sizeGb = sizeBytes > 0 ? (sizeBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB' : '';
 
         streams.push({
-          name: 'AltHub (NZB)',
+          name: `${name} (NZB)`,
           title: `${title}\n💾 ${sizeGb}`,
           url: nzbLink,
           nzbUrl: nzbLink,
           behaviorHints: {
-            bingeGroup: 'althub',
+            bingeGroup: name.toLowerCase(),
             filename: title,
             videoSize: sizeBytes,
             nzbUrl: nzbLink,
@@ -527,7 +533,7 @@ class AioStreamsService {
 
       return streams;
     } catch (err: any) {
-      console.warn('[AltHub] Newznab search error:', err.message);
+      console.warn(`[${name}] Newznab search error:`, err.message);
       return [];
     }
   }
@@ -632,7 +638,17 @@ class AioStreamsService {
 
     // 7. Auto-enabled AltHub (Newznab Indexer)
     if (config.althubApiKey) {
-      tasks.push(this.fetchFromAltHub(config.althubApiKey, stremioType, id));
+      tasks.push(this.fetchFromNewznab('AltHub', 'https://api.althub.co.za', config.althubApiKey, stremioType, id));
+    }
+
+    // 8. Auto-enabled NZBGeek (Newznab Indexer)
+    if (config.nzbgeekApiKey) {
+      tasks.push(this.fetchFromNewznab('NZBGeek', 'https://api.nzbgeek.info', config.nzbgeekApiKey, stremioType, id));
+    }
+
+    // 9. Auto-enabled DrunkenSlug (Newznab Indexer)
+    if (config.drunkenslugApiKey) {
+      tasks.push(this.fetchFromNewznab('DrunkenSlug', 'https://api.drunkenslug.com', config.drunkenslugApiKey, stremioType, id));
     }
 
     if (tasks.length === 0) {
