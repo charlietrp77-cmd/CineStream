@@ -250,6 +250,14 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       if (res.ok) {
         const data = await res.json();
         setIsInMyList(data.inList);
+        if (data.inList) {
+          if (item.type === 'tv') {
+            setNasSuccessMessage(`Added "${item.title}" to Watchlist & monitoring in Sonarr for all missing & new episodes!`);
+          } else {
+            setNasSuccessMessage(`Added "${item.title}" to Watchlist & monitoring in Radarr!`);
+          }
+          setTimeout(() => setNasSuccessMessage(null), 5000);
+        }
       }
     } catch (_) {}
   };

@@ -1112,6 +1112,219 @@ export class ArrService {
       return false;
     }
   }
+
+  /**
+   * Adds or updates a TV series in Sonarr with continuous monitoring enabled (all seasons monitored)
+   * and triggers an automatic search for any missing episodes.
+   */
+  public async monitorSeriesInSonarr(
+    imdbId: string,
+    seriesTitle: string,
+    tmdbId?: number,
+    tvdbId?: number
+  ): Promise<{ success: boolean; message: string; seriesId?: number }> {
+    const sonarr = this.getSonarrConfig();
+    if (!sonarr.isConfigured) {
+      return { success: false, message: 'Sonarr is not configured.' };
+    }
+
+    try {
+      // 1. Check if series already exists in Sonarr
+      const getRes = await undiciFetch(`${sonarr.url}/api/v3/series?includeSeasonImages=false`, {
+        headers: { 'X-Api-Key': sonarr.key },
+      });
+      let existingSeries: any = null;
+      if (getRes.ok) {
+        const seriesList = (await getRes.json()) as any[];
+        if (Array.isArray(seriesList)) {
+          existingSeries = seriesList.find(
+            (s: any) =>
+              (tvdbId && s.tvdbId === tvdbId) ||
+              (imdbId && s.imdbId === imdbId) ||
+              (s.title && s.title.toLowerCase() === seriesTitle.toLowerCase())
+          );
+        }
+      }
+
+      if (existingSeries) {
+        let modified = false;
+        if (!existingSeries.monitored) {
+          existingSeries.monitored = true;
+          modified = true;
+        }
+        if (Array.isArray(existingSeries.seasons)) {
+          for (const s of existingSeries.seasons) {
+            if (!s.monitored) {
+              s.monitored = true;
+              modified = true;
+            }
+          }
+        }
+
+        if (modified) {
+          await undiciFetch(`${sonarr.url}/api/v3/series/${existingSeries.id}`, {
+            method: 'PUT',
+            headers: { 'X-Api-Key': sonarr.key, 'Content-Type': 'application/json' },
+            body: JSON.stringify(existingSeries),
+          });
+        }
+
+        // Trigger SeriesSearch to immediately search indexers for all missing episodes
+        await undiciFetch(`${sonarr.url}/api/v3/command`, {
+          method: 'POST',
+          headers: { 'X-Api-Key': sonarr.key, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'SeriesSearch',
+            seriesId: existingSeries.id,
+          }),
+        });
+
+        console.log(`✅ [Sonarr] Continuous monitoring enabled & SeriesSearch triggered for "${seriesTitle}" (ID: ${existingSeries.id})`);
+        return { success: true, message: `Monitoring "${seriesTitle}" in Sonarr for all missing & new episodes.`, seriesId: existingSeries.id };
+      }
+
+      // 2. Lookup series in Sonarr
+      const term = tvdbId ? `tvdb:${tvdbId}` : `imdb:${imdbId}`;
+      const lookupRes = await undiciFetch(`${sonarr.url}/api/v3/series/lookup?term=${encodeURIComponent(term)}`, {
+        headers: { 'X-Api-Key': sonarr.key },
+      });
+      if (!lookupRes.ok) throw new Error('Could not lookup series in Sonarr');
+      const lookupList = (await lookupRes.json()) as any[];
+      const lookupSeries = lookupList[0];
+      if (!lookupSeries) throw new Error(`Series "${seriesTitle}" not found in Sonarr lookup`);
+
+      // 3. Root folder & Quality profile
+      const rootRes = await undiciFetch(`${sonarr.url}/api/v3/rootfolder`, { headers: { 'X-Api-Key': sonarr.key } });
+      const rootFolders = (await rootRes.json()) as any[];
+      const rootPath = rootFolders[0]?.path || '/tv';
+
+      const qpRes = await undiciFetch(`${sonarr.url}/api/v3/qualityprofile`, { headers: { 'X-Api-Key': sonarr.key } });
+      const qp = (await qpRes.json()) as any[];
+      const qpId = qp[0]?.id || 1;
+
+      // Ensure all seasons are monitored
+      const seasons = (lookupSeries.seasons || []).map((s: any) => ({
+        ...s,
+        monitored: true,
+      }));
+
+      // 4. Add to Sonarr with searchForMissingEpisodes: true
+      const addRes = await undiciFetch(`${sonarr.url}/api/v3/series`, {
+        method: 'POST',
+        headers: {
+          'X-Api-Key': sonarr.key,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: lookupSeries.title,
+          tvdbId: lookupSeries.tvdbId,
+          qualityProfileId: qpId,
+          rootFolderPath: rootPath,
+          monitored: true,
+          seasonFolder: true,
+          seasons,
+          addOptions: { searchForMissingEpisodes: true },
+        }),
+      });
+
+      if (!addRes.ok) {
+        const errText = await addRes.text();
+        throw new Error(`Sonarr rejected series: ${errText}`);
+      }
+
+      const added = (await addRes.json()) as any;
+      console.log(`✅ [Sonarr] Added "${seriesTitle}" to Sonarr with continuous monitoring & missing episode search!`);
+      return { success: true, message: `Added "${seriesTitle}" to Sonarr with continuous monitoring.`, seriesId: added.id };
+    } catch (err: any) {
+      console.warn(`[Sonarr] monitorSeriesInSonarr notice:`, err.message);
+      return { success: false, message: err.message };
+    }
+  }
+
+  /**
+   * Adds or updates a movie in Radarr with continuous monitoring enabled and searches for release.
+   */
+  public async monitorMovieInRadarr(
+    imdbId: string,
+    tmdbId: number,
+    movieTitle: string,
+    year?: string
+  ): Promise<{ success: boolean; message: string; movieId?: number }> {
+    const radarr = this.getRadarrConfig();
+    if (!radarr.isConfigured) {
+      return { success: false, message: 'Radarr is not configured.' };
+    }
+
+    try {
+      const getRes = await undiciFetch(`${radarr.url}/api/v3/movie?tmdbId=${tmdbId}`, {
+        headers: { 'X-Api-Key': radarr.key },
+      });
+      if (getRes.ok) {
+        const movies = (await getRes.json()) as any[];
+        if (Array.isArray(movies) && movies.length > 0) {
+          const m = movies[0];
+          if (!m.monitored) {
+            m.monitored = true;
+            await undiciFetch(`${radarr.url}/api/v3/movie/${m.id}`, {
+              method: 'PUT',
+              headers: { 'X-Api-Key': radarr.key, 'Content-Type': 'application/json' },
+              body: JSON.stringify(m),
+            });
+          }
+          await undiciFetch(`${radarr.url}/api/v3/command`, {
+            method: 'POST',
+            headers: { 'X-Api-Key': radarr.key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'MoviesSearch', movieIds: [m.id] }),
+          });
+          return { success: true, message: `Monitoring "${movieTitle}" in Radarr.`, movieId: m.id };
+        }
+      }
+
+      // Lookup & add movie
+      const lookupRes = await undiciFetch(`${radarr.url}/api/v3/movie/lookup/tmdb?tmdbId=${tmdbId}`, {
+        headers: { 'X-Api-Key': radarr.key },
+      });
+      if (!lookupRes.ok) throw new Error('Could not lookup movie in Radarr');
+      const lookupMovie = (await lookupRes.json()) as any;
+
+      const rootRes = await undiciFetch(`${radarr.url}/api/v3/rootfolder`, { headers: { 'X-Api-Key': radarr.key } });
+      const rootFolders = (await rootRes.json()) as any[];
+      const rootPath = rootFolders[0]?.path || '/movies';
+
+      const qpRes = await undiciFetch(`${radarr.url}/api/v3/qualityprofile`, { headers: { 'X-Api-Key': radarr.key } });
+      const qp = (await qpRes.json()) as any[];
+      const qpId = qp[0]?.id || 1;
+
+      const addRes = await undiciFetch(`${radarr.url}/api/v3/movie`, {
+        method: 'POST',
+        headers: {
+          'X-Api-Key': radarr.key,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: lookupMovie.title || movieTitle,
+          tmdbId,
+          year: lookupMovie.year || parseInt(year || '0', 10),
+          qualityProfileId: qpId,
+          rootFolderPath: rootPath,
+          monitored: true,
+          addOptions: { searchForMovie: true },
+        }),
+      });
+
+      if (!addRes.ok) {
+        const errText = await addRes.text();
+        throw new Error(`Radarr rejected movie: ${errText}`);
+      }
+
+      const added = (await addRes.json()) as any;
+      console.log(`✅ [Radarr] Added "${movieTitle}" to Radarr with continuous monitoring & search!`);
+      return { success: true, message: `Added "${movieTitle}" to Radarr with continuous monitoring.`, movieId: added.id };
+    } catch (err: any) {
+      console.warn(`[Radarr] monitorMovieInRadarr notice:`, err.message);
+      return { success: false, message: err.message };
+    }
+  }
 }
 
 export const arrService = new ArrService();

@@ -526,7 +526,19 @@ export async function progressRoutes(fastify: FastifyInstance, _opts: FastifyPlu
         body.backdrop_url || null,
         Date.now()
       );
-      return reply.send({ inList: true });
+
+      // Automatically monitor series in Sonarr or movie in Radarr for continuous download of missing & new episodes
+      if (body.media_type === 'tv') {
+        arrService.monitorSeriesInSonarr(body.imdb_id, body.title, body.tmdb_id).catch(() => {});
+      } else if (body.media_type === 'movie') {
+        arrService.monitorMovieInRadarr(body.imdb_id, body.tmdb_id, body.title).catch(() => {});
+      }
+
+      return reply.send({
+        inList: true,
+        monitoredInSonarr: body.media_type === 'tv',
+        monitoredInRadarr: body.media_type === 'movie',
+      });
     }
   });
 
