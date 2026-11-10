@@ -1,0 +1,56 @@
+# ==============================================================================
+# Optional Caddy Reverse Proxy Addon for CineStream
+# ==============================================================================
+# Use this file ONLY if you do not have an existing reverse proxy (Caddy, NPM, Traefik)
+# and want CineStream to automatically handle ports 80/443 and Let's Encrypt SSL.
+#
+# Usage with Docker Compose:
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+# ==============================================================================
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: cinestream-caddy
+    restart: unless-stopped
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+    environment:
+      - DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -n "$$DUCKDNS_SUBDOMAIN" ] && [ "$$DUCKDNS_SUBDOMAIN" != "mycinestream" ] && [ "$$DUCKDNS_SUBDOMAIN" != "yoursubdomain" ]; then
+          cat <<EOF > /etc/caddy/Caddyfile
+        {
+            email admin@cinestream.local
+        }
+        $${DUCKDNS_SUBDOMAIN}.duckdns.org {
+            reverse_proxy cinestream:3000
+        }
+        :80 {
+            reverse_proxy cinestream:3000
+        }
+        EOF
+        else
+          cat <<EOF > /etc/caddy/Caddyfile
+        :80 {
+            reverse_proxy cinestream:3000
+        }
+        EOF
+        fi
+        caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - cinestream_net
+    depends_on:
+      - cinestream
+
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
