@@ -298,11 +298,20 @@ export async function diagnosticsRoutes(fastify: FastifyInstance, _opts: Fastify
     let bestStreamInfo: any = null;
     let testError: string | null = null;
 
-    if (!testConfigInput) {
+    const hasActiveProvider = Boolean(
+      testConfigInput ||
+      config.torboxApiKey ||
+      config.premiumizeApiKey ||
+      config.realdebridApiKey ||
+      config.alldebridApiKey ||
+      (config.easynewsUsername && config.easynewsPassword)
+    );
+
+    if (!hasActiveProvider) {
       testStatus = 'SKIPPED';
     } else {
       try {
-        const resolvedStreams = await aioStreams.resolveStreams('movie', 'tt15239678', testConfigInput);
+        const resolvedStreams = await aioStreams.resolveStreams('movie', 'tt15239678', testConfigInput || null);
         testStreamsCount = resolvedStreams.length;
         if (resolvedStreams.length > 0) {
           testStatus = 'PASS';

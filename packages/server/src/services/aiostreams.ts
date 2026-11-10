@@ -97,17 +97,17 @@ export function parseStreamBadges(stream: AioRawStream, isEpisode: boolean = fal
   // Provider / Source extraction
   const bingeLower = (stream.behaviorHints?.bingeGroup || (stream as any).bingeGroup || '').toLowerCase();
   let source = 'Debrid';
-  if (bingeLower.includes('easynews') || /easynews/i.test(combined) || /\(EN\)/i.test(combined)) {
+  if (bingeLower.includes('easynews') || /easynews/i.test(combined) || /\(EN\)/i.test(combined) || /\[EN\+?\]/i.test(combined)) {
     source = 'Easynews';
-  } else if (bingeLower.includes('premiumize') || /premiumize/i.test(combined) || /\(PM\)/i.test(combined) || /\bPM\b/.test(combined)) {
+  } else if (bingeLower.includes('premiumize') || /premiumize/i.test(combined) || /\(PM\)/i.test(combined) || /\bPM\b/.test(combined) || /\[PM\+?\]/i.test(combined)) {
     source = 'Premiumize';
-  } else if (bingeLower.includes('realdebrid') || /real-?debrid/i.test(combined) || /\(RD\)/i.test(combined) || /\bRD\b/.test(combined)) {
+  } else if (bingeLower.includes('realdebrid') || /real-?debrid/i.test(combined) || /\(RD\)/i.test(combined) || /\bRD\b/.test(combined) || /\[RD\+?\]/i.test(combined)) {
     source = 'Real-Debrid';
-  } else if (bingeLower.includes('torbox') || /torbox/i.test(combined) || /\(TB\)/i.test(combined)) {
+  } else if (bingeLower.includes('torbox') || /torbox/i.test(combined) || /\(TB\)/i.test(combined) || /\[TB\+?\]/i.test(combined)) {
     source = 'TorBox';
-  } else if (bingeLower.includes('alldebrid') || /alldebrid/i.test(combined) || /\(AD\)/i.test(combined)) {
+  } else if (bingeLower.includes('alldebrid') || /alldebrid/i.test(combined) || /\(AD\)/i.test(combined) || /\[AD\+?\]/i.test(combined)) {
     source = 'AllDebrid';
-  } else if (bingeLower.includes('debridlink') || /debrid-?link/i.test(combined) || /\(DL\)/i.test(combined)) {
+  } else if (bingeLower.includes('debridlink') || /debrid-?link/i.test(combined) || /\(DL\)/i.test(combined) || /\[DL\+?\]/i.test(combined)) {
     source = 'Debrid-Link';
   } else if (/usenet/i.test(combined)) {
     source = 'Usenet';
@@ -313,20 +313,154 @@ export function cleanConfigToken(rawConfig: string): string {
   return cleaned;
 }
 
+async function lookupTitleYear(imdbId: string): Promise<{ title: string; year: string } | null> {
+  if (!config.tmdbApiKey) return null;
+  try {
+    const res = await undiciFetch(
+      `https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?external_source=imdb_id&api_key=${encodeURIComponent(config.tmdbApiKey)}`,
+      { signal: AbortSignal.timeout(3500) }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    if (data?.movie_results && data.movie_results.length > 0) {
+      const m = data.movie_results[0];
+      const year = m.release_date ? m.release_date.substring(0, 4) : '';
+      return { title: m.title || '', year };
+    }
+    if (data?.tv_results && data.tv_results.length > 0) {
+      const t = data.tv_results[0];
+      const year = t.first_air_date ? t.first_air_date.substring(0, 4) : '';
+      return { title: t.name || '', year };
+    }
+  } catch (_) {}
+  return null;
+}
+
 class AioStreamsService {
   private prefetchCache = new Map<string, { streams: ResolvedStream[]; expiresAt: number }>();
 
-  public async fetchRawStreams(
-    type: 'movie' | 'tv' | 'series',
-    id: string,
-    configOverride?: string | null
+  private async fetchFromTorrentio(
+    provider: 'torbox' | 'premiumize' | 'realdebrid' | 'alldebrid',
+    key: string,
+    type: 'movie' | 'series',
+    id: string
   ): Promise<AioRawStream[]> {
-    const rawConfig = configOverride || config.aiostreamsUserConfig || appSettings.get('aiostreams_user_config');
-    if (!rawConfig) {
-      console.warn('[AIOStreams] No AIOStreams configuration found (AIOSTREAMS_USER_CONFIG is empty). Visit http://<host>:3001 to configure scrapers or check /diagnostics.');
+    try {
+      const url = `https://torrentio.strem.fun/${provider}=${encodeURIComponent(key)}|sort=qualitysize/stream/${type}/${encodeURIComponent(id)}.json`;
+      const res = await undiciFetch(url, {
+        headers: { 'User-Agent': 'CineStream/1.0.0' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return [];
+      const json = (await res.json()) as { streams?: AioRawStream[] };
+      return json.streams || [];
+    } catch (err: any) {
+      console.warn(`[Torrentio] Direct fetch failed for ${provider}:`, err.message);
       return [];
     }
+  }
 
+  private async fetchFromEasynews(
+    user: string,
+    pass: string,
+    type: 'movie' | 'series',
+    id: string
+  ): Promise<AioRawStream[]> {
+    try {
+      let imdbId = id;
+      let season = 0;
+      let episode = 0;
+      if (id.includes(':')) {
+        const parts = id.split(':');
+        imdbId = parts[0];
+        season = parseInt(parts[1], 10) || 1;
+        episode = parseInt(parts[2], 10) || 1;
+      }
+
+      let searchQuery = imdbId;
+      const meta = await lookupTitleYear(imdbId);
+      if (meta && meta.title) {
+        if (type === 'series' && season > 0 && episode > 0) {
+          const sStr = String(season).padStart(2, '0');
+          const eStr = String(episode).padStart(2, '0');
+          searchQuery = `${meta.title} S${sStr}E${eStr}`;
+        } else if (meta.year) {
+          searchQuery = `${meta.title} ${meta.year}`;
+        } else {
+          searchQuery = meta.title;
+        }
+      }
+
+      const cleanGps = searchQuery.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+      const params = new URLSearchParams({
+        st: 'adv',
+        safeO: '0',
+        sb: '1',
+        fex: 'mkv,mp4',
+        'fty[]': 'VIDEO',
+        spamf: '1',
+        pby: '30',
+        gps: cleanGps,
+      });
+
+      const auth = Buffer.from(`${user}:${pass}`).toString('base64');
+      const url = `https://members.easynews.com/2.0/search/solr-search/advanced?${params.toString()}`;
+
+      const res = await undiciFetch(url, {
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'User-Agent': 'CineStream/1.0.0',
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!res.ok) {
+        console.warn(`[Easynews] Direct search returned HTTP ${res.status}`);
+        return [];
+      }
+
+      const json = (await res.json()) as any;
+      const rawData = json?.data || [];
+      const streams: AioRawStream[] = [];
+
+      for (const item of rawData) {
+        const fileId = item[0] || item.id;
+        const filename = item[1] || item.filename || item[3] || 'easynews_video.mkv';
+        const sizeBytes = parseInt(item[10] || item.size || '0', 10);
+        if (!fileId || !filename) continue;
+
+        const sizeGb = sizeBytes > 0 ? (sizeBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB' : '';
+        const streamUrl = `https://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@members.easynews.com/dl/${fileId}/${encodeURIComponent(filename)}`;
+
+        streams.push({
+          name: 'Easynews',
+          title: `${filename}\n💾 ${sizeGb}`,
+          url: streamUrl,
+          behaviorHints: {
+            bingeGroup: 'easynews',
+            filename,
+            videoSize: sizeBytes,
+            proxyHeaders: {
+              request: {
+                Authorization: `Basic ${auth}`,
+              },
+            },
+          },
+        });
+      }
+
+      return streams;
+    } catch (err: any) {
+      console.warn('[Easynews] Direct search error:', err.message);
+      return [];
+    }
+  }
+
+  private async fetchFromAioStreams(
+    type: 'movie' | 'series',
+    id: string,
+    rawConfig: string
+  ): Promise<AioRawStream[]> {
     const candidateUrls = buildStreamUrls(config.aiostreamsInternalUrl, rawConfig, type, id);
 
     for (const url of candidateUrls) {
@@ -343,7 +477,6 @@ class AioStreamsService {
         const json = (await response.json()) as { streams?: AioRawStream[] };
         const streams = json.streams || [];
 
-        // Check if AIOStreams returned a reconfigure error notice
         const isErrorNotice = streams.some((s: any) =>
           s.streamData?.type === 'error' ||
           (s.name && s.name.includes('❌')) ||
@@ -358,7 +491,6 @@ class AioStreamsService {
           return streams;
         }
       } catch (err) {
-        // Fallback for host-mode
         if (!url.includes(':3001')) {
           try {
             const fallbackHostUrl = url.replace(config.aiostreamsInternalUrl, 'http://127.0.0.1:3001');
@@ -380,6 +512,69 @@ class AioStreamsService {
     }
 
     return [];
+  }
+
+  public async fetchRawStreams(
+    type: 'movie' | 'tv' | 'series',
+    id: string,
+    configOverride?: string | null
+  ): Promise<AioRawStream[]> {
+    const stremioType = type === 'tv' || type === 'series' ? 'series' : 'movie';
+    const rawConfig = configOverride || config.aiostreamsUserConfig || appSettings.get('aiostreams_user_config');
+
+    const tasks: Promise<AioRawStream[]>[] = [];
+
+    // 1. Local AIOStreams container (if user token or override configured)
+    if (rawConfig) {
+      tasks.push(this.fetchFromAioStreams(stremioType, id, rawConfig));
+    }
+
+    // 2. Auto-enabled TorBox + Torrentio
+    if (config.torboxApiKey) {
+      tasks.push(this.fetchFromTorrentio('torbox', config.torboxApiKey, stremioType, id));
+    }
+
+    // 3. Auto-enabled Premiumize + Torrentio
+    if (config.premiumizeApiKey) {
+      tasks.push(this.fetchFromTorrentio('premiumize', config.premiumizeApiKey, stremioType, id));
+    }
+
+    // 4. Auto-enabled Real-Debrid + Torrentio
+    if (config.realdebridApiKey) {
+      tasks.push(this.fetchFromTorrentio('realdebrid', config.realdebridApiKey, stremioType, id));
+    }
+
+    // 5. Auto-enabled AllDebrid + Torrentio
+    if (config.alldebridApiKey) {
+      tasks.push(this.fetchFromTorrentio('alldebrid', config.alldebridApiKey, stremioType, id));
+    }
+
+    // 6. Auto-enabled Easynews Direct
+    if (config.easynewsUsername && config.easynewsPassword) {
+      tasks.push(this.fetchFromEasynews(config.easynewsUsername, config.easynewsPassword, stremioType, id));
+    }
+
+    if (tasks.length === 0) {
+      console.warn('[CineStream Streams] No active stream providers configured in environment.');
+      return [];
+    }
+
+    const settled = await Promise.allSettled(tasks);
+    const combined: AioRawStream[] = [];
+    const seenUrls = new Set<string>();
+
+    for (const res of settled) {
+      if (res.status === 'fulfilled' && Array.isArray(res.value)) {
+        for (const s of res.value) {
+          if (s.url && !seenUrls.has(s.url)) {
+            seenUrls.add(s.url);
+            combined.push(s);
+          }
+        }
+      }
+    }
+
+    return combined;
   }
 
   public async resolveStreams(
