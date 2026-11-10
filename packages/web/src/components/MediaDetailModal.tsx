@@ -898,6 +898,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           tmdbId: item.tmdbId,
           imdbId: targetImdb,
           title: item.title,
+          releaseTitle: targetStream.rawReleaseTitle || targetStream.title.split('\n')[0].trim(),
           year: item.releaseDate ? item.releaseDate.split('-')[0] : undefined,
           seasonNumber: item.type === 'tv' ? selectedSeason : undefined,
           episodeNumber: item.type === 'tv' ? (selectedEpisode?.episodeNumber || 1) : undefined,

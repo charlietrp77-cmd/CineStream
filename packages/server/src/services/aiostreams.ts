@@ -53,6 +53,7 @@ export interface ResolvedStream {
   infoHash?: string;
   magnetUrl?: string;
   nzbUrl?: string;
+  rawReleaseTitle?: string;
 }
 
 const CAM_REGEX = /\b(CAM|HDCAM|CAM-?RIP|TS-?RIP|TELESYNC|HD-?TS|TELE-?CINE|DVD-?SCR|SCREENER|WORKPRINT)\b/i;
@@ -745,6 +746,7 @@ class AioStreamsService {
         infoHash,
         magnetUrl,
         nzbUrl,
+        rawReleaseTitle: raw.behaviorHints?.filename || raw.title?.split('\n')[0] || raw.name || '',
       });
     }
 

@@ -78,6 +78,7 @@ export interface ResolvedStream {
   infoHash?: string;
   magnetUrl?: string;
   nzbUrl?: string;
+  rawReleaseTitle?: string;
 }
 
 export interface WatchProgress {

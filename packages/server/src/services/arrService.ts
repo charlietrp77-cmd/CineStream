@@ -200,6 +200,7 @@ export class ArrService {
     tmdbId: number;
     imdbId: string;
     movieTitle: string;
+    releaseTitle?: string;
     year?: string;
     targetSizeBytes: number;
     targetBadges?: Partial<StreamBadges>;
@@ -347,6 +348,10 @@ export class ArrService {
 
     // 1c. If direct NZB link is available, push directly into Radarr (Usenet)
     if (params.targetNzbUrl) {
+      const cleanReleaseName = (params.releaseTitle || params.movieTitle)
+        .replace(/\.nzb$/i, '')
+        .trim();
+
       try {
         const directPushRes = await undiciFetch(`${radarr.url}/api/v3/release/push`, {
           method: 'POST',
@@ -355,10 +360,12 @@ export class ArrService {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            title: params.movieTitle,
+            title: cleanReleaseName,
             downloadUrl: params.targetNzbUrl,
             protocol: 'usenet',
             publishDate: new Date().toISOString(),
+            size: params.targetSizeBytes || 0,
+            indexer: 'AltHub',
           }),
         });
         if (directPushRes.ok) {
@@ -368,8 +375,8 @@ export class ArrService {
             matchedRelease: {
               guid: params.targetNzbUrl,
               indexerId: 0,
-              indexer: 'Direct Usenet NZB',
-              title: params.movieTitle,
+              indexer: 'AltHub (NZB)',
+              title: cleanReleaseName,
               sizeBytes: params.targetSizeBytes,
               sizeText: formatBytes(params.targetSizeBytes),
               targetSizeBytes: params.targetSizeBytes,
@@ -385,8 +392,52 @@ export class ArrService {
             isWithin10Percent: true,
             allCandidatesCount: 1,
           };
+        } else {
+          const errText = await directPushRes.text();
+          console.warn('[Radarr] Direct release push response:', errText);
         }
-      } catch (_) {}
+      } catch (err: any) {
+        console.warn('[Radarr] Direct release push network notice:', err.message);
+      }
+
+      // If Radarr rejected or has no indexer for it, queue directly in SABnzbd
+      const sabKey = appSettings.get('sabnzbd_api_key');
+      if (sabKey) {
+        try {
+          const sabRes = await undiciFetch(`http://sabnzbd:8080/api?mode=addurl&name=${encodeURIComponent(params.targetNzbUrl)}&nzbname=${encodeURIComponent(cleanReleaseName)}&cat=movies&apikey=${sabKey}`, {
+            headers: { Host: 'localhost:8080' },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (sabRes.ok) {
+            const sabJson: any = await sabRes.json();
+            if (sabJson?.status === true) {
+              return {
+                success: true,
+                service: 'radarr',
+                matchedRelease: {
+                  guid: params.targetNzbUrl,
+                  indexerId: 0,
+                  indexer: 'AltHub -> SABnzbd',
+                  title: cleanReleaseName,
+                  sizeBytes: params.targetSizeBytes,
+                  sizeText: formatBytes(params.targetSizeBytes),
+                  targetSizeBytes: params.targetSizeBytes,
+                  sizeDiffBytes: 0,
+                  sizeDiffPercent: 0,
+                  isWithin10Percent: true,
+                  resolution: params.targetBadges?.resolution || '4K',
+                  qualityName: 'Direct SABnzbd',
+                  rejected: false,
+                  score: 9999,
+                },
+                message: `Sent AltHub NZB directly to SABnzbd queue (downloading to NAS /movies)!`,
+                isWithin10Percent: true,
+                allCandidatesCount: 1,
+              };
+            }
+          }
+        } catch (_) {}
+      }
     }
 
     // 2. Fetch releases from Radarr indexers
@@ -500,6 +551,7 @@ export class ArrService {
     tvdbId?: number;
     imdbId: string;
     seriesTitle: string;
+    releaseTitle?: string;
     seasonNumber: number;
     episodeNumber?: number; // Omit for full season pack
     targetSizeBytes: number;
@@ -647,6 +699,10 @@ export class ArrService {
 
     // 1c. If direct NZB link is available, push directly into Sonarr (Usenet)
     if (params.targetNzbUrl) {
+      const cleanReleaseName = (params.releaseTitle || params.seriesTitle)
+        .replace(/\.nzb$/i, '')
+        .trim();
+
       try {
         const directPushRes = await undiciFetch(`${sonarr.url}/api/v3/release/push`, {
           method: 'POST',
@@ -655,10 +711,12 @@ export class ArrService {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            title: params.seriesTitle,
+            title: cleanReleaseName,
             downloadUrl: params.targetNzbUrl,
             protocol: 'usenet',
             publishDate: new Date().toISOString(),
+            size: params.targetSizeBytes || 0,
+            indexer: 'AltHub',
           }),
         });
         if (directPushRes.ok) {
@@ -668,8 +726,8 @@ export class ArrService {
             matchedRelease: {
               guid: params.targetNzbUrl,
               indexerId: 0,
-              indexer: 'Direct Usenet NZB',
-              title: params.seriesTitle,
+              indexer: 'AltHub (NZB)',
+              title: cleanReleaseName,
               sizeBytes: params.targetSizeBytes,
               sizeText: formatBytes(params.targetSizeBytes),
               targetSizeBytes: params.targetSizeBytes,
@@ -685,8 +743,52 @@ export class ArrService {
             isWithin10Percent: true,
             allCandidatesCount: 1,
           };
+        } else {
+          const errText = await directPushRes.text();
+          console.warn('[Sonarr] Direct release push response:', errText);
         }
-      } catch (_) {}
+      } catch (err: any) {
+        console.warn('[Sonarr] Direct release push network notice:', err.message);
+      }
+
+      // If Sonarr rejected or has no indexer for it, queue directly in SABnzbd
+      const sabKey = appSettings.get('sabnzbd_api_key');
+      if (sabKey) {
+        try {
+          const sabRes = await undiciFetch(`http://sabnzbd:8080/api?mode=addurl&name=${encodeURIComponent(params.targetNzbUrl)}&nzbname=${encodeURIComponent(cleanReleaseName)}&cat=tv&apikey=${sabKey}`, {
+            headers: { Host: 'localhost:8080' },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (sabRes.ok) {
+            const sabJson: any = await sabRes.json();
+            if (sabJson?.status === true) {
+              return {
+                success: true,
+                service: 'sonarr',
+                matchedRelease: {
+                  guid: params.targetNzbUrl,
+                  indexerId: 0,
+                  indexer: 'AltHub -> SABnzbd',
+                  title: cleanReleaseName,
+                  sizeBytes: params.targetSizeBytes,
+                  sizeText: formatBytes(params.targetSizeBytes),
+                  targetSizeBytes: params.targetSizeBytes,
+                  sizeDiffBytes: 0,
+                  sizeDiffPercent: 0,
+                  isWithin10Percent: true,
+                  resolution: params.targetBadges?.resolution || '4K',
+                  qualityName: 'Direct SABnzbd',
+                  rejected: false,
+                  score: 9999,
+                },
+                message: `Sent AltHub NZB directly to SABnzbd queue (downloading to NAS /tv)!`,
+                isWithin10Percent: true,
+                allCandidatesCount: 1,
+              };
+            }
+          }
+        } catch (_) {}
+      }
     }
 
     // 2. Fetch releases from Sonarr

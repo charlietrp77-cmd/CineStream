@@ -366,6 +366,45 @@ priority = 0
         }
       }
     } catch (_) {}
+
+    // D. Auto-register AltHub Newznab Indexer in Radarr
+    if (config.althubApiKey) {
+      try {
+        const idxRes = await undiciFetch('http://radarr:7878/api/v3/indexer', { headers });
+        if (idxRes.ok) {
+          const indexers: any = await idxRes.json();
+          const hasAltHub = Array.isArray(indexers) && indexers.some((i: any) => i.name?.toLowerCase().includes('althub'));
+          if (!hasAltHub) {
+            await undiciFetch('http://radarr:7878/api/v3/indexer', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                enableRss: true,
+                enableAutomaticSearch: true,
+                enableInteractiveSearch: true,
+                supportsRss: true,
+                supportsSearch: true,
+                protocol: 'usenet',
+                name: 'altHUB',
+                fields: [
+                  { name: 'base_url', value: 'https://api.althub.co.za' },
+                  { name: 'api_path', value: '/api' },
+                  { name: 'apikey', value: config.althubApiKey },
+                  { name: 'categories', value: [2000, 2030, 2040, 2045, 2050, 2060] },
+                  { name: 'additionalParameters', value: '' },
+                ],
+                implementation: 'Newznab',
+                configContract: 'NewznabSettings',
+                priority: 25,
+              }),
+            });
+            console.log('✅ [Bootstrap] Registered AltHub as Newznab indexer in Radarr!');
+          }
+        }
+      } catch (err: any) {
+        console.warn('[Bootstrap] AltHub Radarr registration notice:', err.message);
+      }
+    }
   }
 
   private async configureSonarr(apiKey: string, sabKey: string): Promise<void> {
@@ -438,6 +477,45 @@ priority = 0
         }
       }
     } catch (_) {}
+
+    // D. Auto-register AltHub Newznab Indexer in Sonarr
+    if (config.althubApiKey) {
+      try {
+        const idxRes = await undiciFetch('http://sonarr:8989/api/v3/indexer', { headers });
+        if (idxRes.ok) {
+          const indexers: any = await idxRes.json();
+          const hasAltHub = Array.isArray(indexers) && indexers.some((i: any) => i.name?.toLowerCase().includes('althub'));
+          if (!hasAltHub) {
+            await undiciFetch('http://sonarr:8989/api/v3/indexer', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                enableRss: true,
+                enableAutomaticSearch: true,
+                enableInteractiveSearch: true,
+                supportsRss: true,
+                supportsSearch: true,
+                protocol: 'usenet',
+                name: 'altHUB',
+                fields: [
+                  { name: 'base_url', value: 'https://api.althub.co.za' },
+                  { name: 'api_path', value: '/api' },
+                  { name: 'apikey', value: config.althubApiKey },
+                  { name: 'categories', value: [5000, 5020, 5030, 5040, 5045] },
+                  { name: 'additionalParameters', value: '' },
+                ],
+                implementation: 'Newznab',
+                configContract: 'NewznabSettings',
+                priority: 25,
+              }),
+            });
+            console.log('✅ [Bootstrap] Registered AltHub as Newznab indexer in Sonarr!');
+          }
+        }
+      } catch (err: any) {
+        console.warn('[Bootstrap] AltHub Sonarr registration notice:', err.message);
+      }
+    }
   }
 
   private tryCreateDir(dir: string): boolean {

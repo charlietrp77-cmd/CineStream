@@ -42,6 +42,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       tmdbId: number;
       imdbId: string;
       title: string;
+      releaseTitle?: string;
       year?: string;
       seasonNumber?: number;
       episodeNumber?: number;
@@ -62,6 +63,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
         tmdbId: body.tmdbId,
         imdbId: body.imdbId,
         movieTitle: body.title,
+        releaseTitle: body.releaseTitle,
         year: body.year,
         targetSizeBytes: body.targetSizeBytes || 0,
         targetBadges: body.targetBadges,
@@ -75,6 +77,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       const result = await arrService.pushSonarrSeries({
         imdbId: body.imdbId,
         seriesTitle: body.title,
+        releaseTitle: body.releaseTitle,
         seasonNumber: body.seasonNumber || 1,
         episodeNumber: body.episodeNumber,
         targetSizeBytes: body.targetSizeBytes || 0,
