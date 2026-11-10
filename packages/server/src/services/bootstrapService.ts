@@ -131,14 +131,32 @@ export class BootstrapService {
     try {
       const iniPath = path.join(this.sabnzbdConfigDir, 'sabnzbd.ini');
       if (fs.existsSync(iniPath)) {
-        const content = fs.readFileSync(iniPath, 'utf8');
+        let content = fs.readFileSync(iniPath, 'utf8');
         const match = content.match(/^api_key\s*=\s*([a-f0-9_]+)/m);
         if (match && match[1]) {
           const key = match[1].trim();
           appSettings.set('sabnzbd_api_key', key);
           console.log(`[Bootstrap] Discovered existing SABnzbd API key from ${iniPath}`);
-          return;
         }
+
+        // Automatically patch host_whitelist in existing sabnzbd.ini to permit container hostname routing
+        let updated = false;
+        if (/^host_whitelist\s*=/m.test(content)) {
+          const wlLine = content.match(/^host_whitelist\s*=.*$/m)?.[0] || '';
+          if (!/sabnzbd/i.test(wlLine)) {
+            content = content.replace(/^host_whitelist\s*=\s*(.*)$/m, 'host_whitelist = $1, sabnzbd, cinestream-sabnzbd, localhost, 127.0.0.1');
+            updated = true;
+          }
+        } else if (/\[misc\]/i.test(content)) {
+          content = content.replace(/\[misc\]/i, '[misc]\nhost_whitelist = sabnzbd, cinestream-sabnzbd, localhost, 127.0.0.1');
+          updated = true;
+        }
+
+        if (updated) {
+          fs.writeFileSync(iniPath, content, 'utf8');
+          console.log('[Bootstrap] Automatically added container hostnames to SABnzbd host_whitelist in sabnzbd.ini');
+        }
+        return;
       }
 
       if (fs.existsSync(this.sabnzbdConfigDir) || this.tryCreateDir(this.sabnzbdConfigDir)) {
@@ -152,6 +170,7 @@ export class BootstrapService {
 [misc]
 api_key = ${sabKey}
 nzb_key = ${sabKey}
+host_whitelist = sabnzbd, cinestream-sabnzbd, localhost, 127.0.0.1
 enable_https = 0
 port = 8080
 host = 0.0.0.0

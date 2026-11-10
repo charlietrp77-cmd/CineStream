@@ -97,6 +97,7 @@ async function checkSabnzbdHealth(): Promise<{
   }
   try {
     const res = await undiciFetch(`${url}/api?mode=version&output=json&apikey=${sabKey}`, {
+      headers: { Host: 'localhost:8080' },
       signal: AbortSignal.timeout(3000),
     });
     if (res.ok) {
