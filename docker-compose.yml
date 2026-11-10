@@ -1,0 +1,199 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: cinestream-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - cinestream_net
+    depends_on:
+      - cinestream
+
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    container_name: cinestream-duckdns
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+      - SUBDOMAINS=${DUCKDNS_SUBDOMAIN:-}
+      - TOKEN=${DUCKDNS_TOKEN:-}
+      - LOG_FILE=false
+    networks:
+      - cinestream_net
+
+  aiostreams:
+    image: ghcr.io/viren070/aiostreams:latest
+    container_name: cinestream-aiostreams
+    restart: unless-stopped
+    ports:
+      - "${AIOSTREAMS_PORT:-3001}:3000"
+    environment:
+      - SECRET_KEY=${AIOSTREAMS_SECRET_KEY:-f7b2c9d4e1a803562b4c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a}
+      - AIOSTREAMS_AUTH=${AIOSTREAMS_AUTH:-admin:cinestream123}
+      - ADDON_PASSWORD=${AIOSTREAMS_ADDON_PASSWORD:-}
+      - BASE_URL=${AIOSTREAMS_BASE_URL:-http://aiostreams:3000}
+    volumes:
+      - aiostreams_data:/app/data
+    networks:
+      - cinestream_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  cinestream:
+    image: ${CINESTREAM_IMAGE:-ghcr.io/charlietrp77-cmd/cinestream:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cinestream-app
+    restart: unless-stopped
+    ports:
+      - "${CINESTREAM_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_PATH=/app/data/cinestream.sqlite
+      - NAS_CACHE_PATH=/mnt/nas
+      - BACKUP_PATH=/mnt/backups
+      - NAS_MAX_CONCURRENT_DOWNLOADS=${NAS_MAX_CONCURRENT_DOWNLOADS:-2}
+      - NAS_THREADS_PER_DOWNLOAD=${NAS_THREADS_PER_DOWNLOAD:-6}
+      - DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN:-}
+      - DUCKDNS_TOKEN=${DUCKDNS_TOKEN:-}
+      - PUBLIC_SERVER_URL=${PUBLIC_SERVER_URL:-}
+      - AIOSTREAMS_INTERNAL_URL=http://aiostreams:3000
+      - AIOSTREAMS_USER_CONFIG=${AIOSTREAMS_USER_CONFIG:-}
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - DEFAULT_COUNTRY=${DEFAULT_COUNTRY:-ZA}
+      - TORBOX_API_KEY=${TORBOX_API_KEY:-}
+      - PREMIUMIZE_API_KEY=${PREMIUMIZE_API_KEY:-}
+      - EASYNEWS_USERNAME=${EASYNEWS_USERNAME:-}
+      - EASYNEWS_PASSWORD=${EASYNEWS_PASSWORD:-}
+      - PROXY_CONNECTIONS=${PROXY_CONNECTIONS:-8}
+      - PROXY_CHUNK_SIZE_MB=${PROXY_CHUNK_SIZE_MB:-8}
+      - PROXY_READAHEAD_MB=${PROXY_READAHEAD_MB:-64}
+      - RADARR_URL=${RADARR_URL:-http://radarr:7878}
+      - RADARR_API_KEY=${RADARR_API_KEY:-}
+      - SONARR_URL=${SONARR_URL:-http://sonarr:8989}
+      - SONARR_API_KEY=${SONARR_API_KEY:-}
+    volumes:
+      - cinestream_data:/app/data
+      - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
+      - ${BACKUP_HOST_PATH:-cinestream_backups}:/mnt/backups
+      - radarr_config:/arr_configs/radarr
+      - sonarr_config:/arr_configs/sonarr
+      - sabnzbd_config:/arr_configs/sabnzbd
+      - aiostreams_data:/aiostreams_data
+    networks:
+      - cinestream_net
+    depends_on:
+      - aiostreams
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: cinestream-radarr
+    restart: unless-stopped
+    ports:
+      - "${RADARR_PORT:-7878}:7878"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - radarr_config:/config
+      - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
+      - ${BACKUP_HOST_PATH:-cinestream_backups}:/mnt/backups
+    networks:
+      - cinestream_net
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: cinestream-sonarr
+    restart: unless-stopped
+    ports:
+      - "${SONARR_PORT:-8989}:8989"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - sonarr_config:/config
+      - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
+      - ${BACKUP_HOST_PATH:-cinestream_backups}:/mnt/backups
+    networks:
+      - cinestream_net
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: cinestream-prowlarr
+    restart: unless-stopped
+    ports:
+      - "${PROWLARR_PORT:-9696}:9696"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - prowlarr_config:/config
+      - ${BACKUP_HOST_PATH:-cinestream_backups}:/mnt/backups
+    networks:
+      - cinestream_net
+
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: cinestream-sabnzbd
+    restart: unless-stopped
+    ports:
+      - "${SABNZBD_PORT:-8080}:8080"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - sabnzbd_config:/config
+      - ${NAS_HOST_PATH:-nas_media_cache}:/mnt/nas
+      - ${BACKUP_HOST_PATH:-cinestream_backups}:/mnt/backups
+    networks:
+      - cinestream_net
+
+volumes:
+  aiostreams_data:
+    driver: local
+  cinestream_data:
+    driver: local
+  nas_media_cache:
+    driver: local
+  cinestream_backups:
+    driver: local
+  radarr_config:
+    driver: local
+  sonarr_config:
+    driver: local
+  prowlarr_config:
+    driver: local
+  sabnzbd_config:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+
+networks:
+  cinestream_net:
+    driver: bridge
