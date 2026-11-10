@@ -2,9 +2,11 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 
-// Load .env from project root or current working dir if available
+// Load .env and stack.env from project root or current working dir if available
 dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), 'stack.env') });
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../stack.env') });
 
 export interface AppConfig {
   nodeEnv: string;
