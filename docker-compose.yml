@@ -1,4 +1,68 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: cinestream-caddy
+    restart: unless-stopped
+    profiles:
+      - caddy
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+    environment:
+      - DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -n "$$DUCKDNS_SUBDOMAIN" ] && [ "$$DUCKDNS_SUBDOMAIN" != "mycinestream" ] && [ "$$DUCKDNS_SUBDOMAIN" != "yoursubdomain" ]; then
+          cat <<EOF > /etc/caddy/Caddyfile
+        {
+            email admin@cinestream.local
+        }
+        $${DUCKDNS_SUBDOMAIN}.duckdns.org {
+            # Route AIOStreams manifest and scraping traffic directly
+            handle /stremio* {
+                reverse_proxy aiostreams:3000
+            }
+            handle /api/v1/* {
+                reverse_proxy aiostreams:3000
+            }
+
+            # All other traffic routes to CineStream Web & Player
+            handle {
+                reverse_proxy cinestream:3000
+            }
+        }
+        :80 {
+            handle /stremio* {
+                reverse_proxy aiostreams:3000
+            }
+            handle {
+                reverse_proxy cinestream:3000
+            }
+        }
+        EOF
+        else
+          cat <<EOF > /etc/caddy/Caddyfile
+        :80 {
+            handle /stremio* {
+                reverse_proxy aiostreams:3000
+            }
+            handle {
+                reverse_proxy cinestream:3000
+            }
+        }
+        EOF
+        fi
+        caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - cinestream_net
+    depends_on:
+      - cinestream
+      - aiostreams
+
   duckdns:
     image: lscr.io/linuxserver/duckdns:latest
     container_name: cinestream-duckdns
@@ -170,6 +234,10 @@ volumes:
   prowlarr_config:
     driver: local
   sabnzbd_config:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
     driver: local
 
 networks:

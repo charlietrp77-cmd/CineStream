@@ -27,10 +27,26 @@ services:
             email admin@cinestream.local
         }
         $${DUCKDNS_SUBDOMAIN}.duckdns.org {
-            reverse_proxy cinestream:3000
+            # Route AIOStreams manifest and scraping traffic directly
+            handle /stremio* {
+                reverse_proxy aiostreams:3000
+            }
+            handle /api/v1/* {
+                reverse_proxy aiostreams:3000
+            }
+
+            # All other traffic routes to CineStream Web & Player
+            handle {
+                reverse_proxy cinestream:3000
+            }
         }
         :80 {
-            reverse_proxy cinestream:3000
+            handle /stremio* {
+                reverse_proxy aiostreams:3000
+            }
+            handle {
+                reverse_proxy cinestream:3000
+            }
         }
         EOF
         else
@@ -54,3 +70,4 @@ volumes:
     driver: local
   caddy_config:
     driver: local
+
