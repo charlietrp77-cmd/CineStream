@@ -53,12 +53,12 @@ export const HeroBillboard: React.FC<HeroBillboardProps> = ({ item, onPlay, onMo
               <Clock className="w-3 h-3 text-blue-300" />
               ⏳ Queued for NAS Caching
             </span>
-          ) : (
+          ) : item.qualityBadge ? (
             <span className="flex items-center gap-1 bg-red-600/20 text-red-400 border border-red-600/30 px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase">
               <Sparkles className="w-3 h-3" />
-              4K Dolby Vision • Atmos
+              {item.qualityBadge}
             </span>
-          )}
+          ) : null}
 
           {item.voteAverage > 0 && (
             <span className="bg-white/10 text-emerald-400 px-2 py-0.5 rounded text-[11px] font-bold">

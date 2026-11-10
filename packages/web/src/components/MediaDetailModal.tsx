@@ -937,6 +937,25 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     ? (filteredStreams.find((s) => !isBrowserLosslessAudio(s)) || filteredStreams[0] || streams[0])
     : (filteredStreams[0] || streams[0]);
 
+  // Dynamically compute the best available quality string across resolved streams
+  const dynamicQualityBadge = (() => {
+    if (loadingStreams) return null;
+    if (bestStream) {
+      const parts: string[] = [];
+      const res = bestStream.badges.resolution || 'HD';
+      parts.push(res);
+      if (bestStream.badges.dolbyVision) parts.push('DV');
+      else if (bestStream.badges.hdr10Plus) parts.push('HDR10+');
+      else if (bestStream.badges.hdr) parts.push('HDR');
+      if (bestStream.badges.atmos) parts.push('Atmos');
+      return parts.join(' • ');
+    }
+    if (item.qualityBadge) {
+      return item.qualityBadge;
+    }
+    return null;
+  })();
+
   const handlePlayBest = () => {
     if (bestStream) {
       onPlayStream(bestStream, item.title, selectedEpisode?.title);
@@ -995,10 +1014,19 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   <Clock className="w-3.5 h-3.5 text-blue-400" />
                   ⏳ Queued for NAS Caching
                 </span>
-              ) : (
+              ) : loadingStreams ? (
+                <span className="flex items-center gap-1.5 bg-white/10 text-gray-300 border border-white/10 px-2 py-0.5 rounded font-medium">
+                  <RefreshCw className="w-3 h-3 animate-spin text-gray-400" />
+                  Checking qualities...
+                </span>
+              ) : dynamicQualityBadge ? (
                 <span className="flex items-center gap-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-semibold">
                   <Sparkles className="w-3.5 h-3.5" />
-                  Available in 4K DV / Atmos
+                  Available in {dynamicQualityBadge}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 bg-white/10 text-gray-400 border border-white/10 px-2 py-0.5 rounded font-medium">
+                  No streams found
                 </span>
               )}
 

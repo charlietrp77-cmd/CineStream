@@ -25,6 +25,7 @@ interface ActivePlayerState {
   isNasCached?: boolean;
   isOfflineFile?: boolean;
   provider?: string;
+  qualityBadge?: string;
 }
 
 export const App: React.FC = () => {
@@ -859,6 +860,14 @@ export const App: React.FC = () => {
           }}
           onPlayStream={(stream: ResolvedStream, mediaTitle: string, epTitle?: string) => {
             setSelectedModalItem(null);
+            const qParts: string[] = [];
+            if (stream.badges.resolution) qParts.push(stream.badges.resolution);
+            if (stream.badges.dolbyVision) qParts.push('DV');
+            else if (stream.badges.hdr10Plus) qParts.push('HDR10+');
+            else if (stream.badges.hdr) qParts.push('HDR');
+            if (stream.badges.atmos) qParts.push('Atmos');
+            const qBadge = qParts.join(' • ');
+
             setPlayerState({
               streamUrl: stream.url,
               title: mediaTitle,
@@ -869,6 +878,7 @@ export const App: React.FC = () => {
               episode: 0,
               isNasCached: stream.badges.isNasCached,
               provider: stream.badges.source,
+              qualityBadge: qBadge || undefined,
             });
           }}
         />
@@ -901,6 +911,7 @@ export const App: React.FC = () => {
             episode: oi.episode,
             isOfflineFile: true,
             provider: 'Offline Device',
+            qualityBadge: 'Offline Local',
           });
         }}
         onPlayNasItem={(job) => {
@@ -915,6 +926,7 @@ export const App: React.FC = () => {
             episode: job.episode,
             isNasCached: true,
             provider: 'NAS Cache',
+            qualityBadge: job.quality_badge || undefined,
           });
         }}
       />

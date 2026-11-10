@@ -526,7 +526,7 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                           )}
                           <div className="flex items-center gap-2 mt-1 text-[11px] text-gray-400">
                             <span className="bg-white/10 px-1.5 py-0.5 rounded text-white font-semibold">
-                              {job.quality_badge || '4K'}
+                              {job.quality_badge || 'Direct Stream'}
                             </span>
                             <span>{formatGb(job.downloaded_bytes)} / {formatGb(job.file_size_bytes)}</span>
                             {job.status === 'downloading' && (

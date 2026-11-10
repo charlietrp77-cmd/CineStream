@@ -78,7 +78,9 @@ export function parseStreamBadges(stream: AioRawStream, isEpisode: boolean = fal
     resolution = '1080p';
   } else if (/\b(720p|HD)\b/i.test(combined)) {
     resolution = '720p';
-  } else if (/\b(480p|576p|SD)\b/i.test(combined)) {
+  } else if (/\b(480p|480i|576p|576i|360p|240p|180p|SD|DVD|DVDRip|TVRip|VHSRip|XviD)\b/i.test(combined)) {
+    resolution = 'SD';
+  } else if (!/\b(1080|720|2160)\b/.test(combined) && /\b(season|s\d+e\d+|complete)\b/i.test(combined)) {
     resolution = 'SD';
   }
 

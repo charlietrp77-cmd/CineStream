@@ -35,6 +35,7 @@ interface PlayerOverlayProps {
   isNasCached?: boolean;
   isOfflineFile?: boolean;
   provider?: string;
+  qualityBadge?: string;
   onClose: () => void;
   onNextEpisode?: () => void;
 }
@@ -50,6 +51,7 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
   isNasCached,
   isOfflineFile,
   provider,
+  qualityBadge,
   onClose,
   onNextEpisode,
 }) => {
@@ -379,10 +381,12 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
               </span>
             )}
 
-            <span className="flex items-center gap-1 bg-white/15 text-white px-2 py-0.5 rounded text-xs font-semibold backdrop-blur-md">
-              <Sparkles className="w-3.5 h-3.5 text-red-500" />
-              4K Dolby Vision • Atmos
-            </span>
+            {qualityBadge && (
+              <span className="flex items-center gap-1 bg-white/15 text-white px-2 py-0.5 rounded text-xs font-semibold backdrop-blur-md">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                {qualityBadge}
+              </span>
+            )}
 
             <button
               onClick={copyStreamUrl}
