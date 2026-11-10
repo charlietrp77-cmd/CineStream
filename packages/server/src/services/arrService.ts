@@ -954,6 +954,49 @@ export class ArrService {
       console.warn(`Failed to notify Arr service of completed download:`, err);
     }
   }
+
+  /**
+   * Checks Sonarr to verify if a specific series episode has already been downloaded (hasFile: true).
+   */
+  public async isEpisodeDownloadedInSonarr(
+    imdbId: string,
+    seasonNumber: number,
+    episodeNumber: number,
+    tvdbId?: number
+  ): Promise<boolean> {
+    const sonarr = this.getSonarrConfig();
+    if (!sonarr.isConfigured) return false;
+
+    try {
+      const getRes = await undiciFetch(`${sonarr.url}/api/v3/series?includeSeasonImages=false`, {
+        headers: { 'X-Api-Key': sonarr.key },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!getRes.ok) return false;
+      const seriesList: any = await getRes.json();
+      if (!Array.isArray(seriesList)) return false;
+
+      const found = seriesList.find(
+        (s: any) =>
+          (tvdbId && s.tvdbId === tvdbId) ||
+          (imdbId && s.imdbId === imdbId)
+      );
+      if (!found || !found.id) return false;
+
+      const epRes = await undiciFetch(`${sonarr.url}/api/v3/episode?seriesId=${found.id}&seasonNumber=${seasonNumber}`, {
+        headers: { 'X-Api-Key': sonarr.key },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!epRes.ok) return false;
+      const epList: any = await epRes.json();
+      if (!Array.isArray(epList)) return false;
+
+      const ep = epList.find((e: any) => e.episodeNumber === episodeNumber);
+      return Boolean(ep && ep.hasFile);
+    } catch (_) {
+      return false;
+    }
+  }
 }
 
 export const arrService = new ArrService();

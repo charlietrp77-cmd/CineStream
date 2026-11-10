@@ -1,6 +1,7 @@
 import { fetch as undiciFetch } from 'undici';
 import { config } from '../config';
 import { appSettings } from './appSettings';
+import { db } from '../db';
 
 export interface StreamBadges {
   resolution: '4K' | '1080p' | '720p' | 'SD';
@@ -688,6 +689,25 @@ class AioStreamsService {
       return cached.streams;
     }
 
+    // Check SQLite stream_cache table (12-hour rolling cache)
+    try {
+      const dbRow = db.prepare(`
+        SELECT all_streams_json, expires_at FROM stream_cache
+        WHERE id = ? AND expires_at > ?
+      `).get(cacheKey, now) as { all_streams_json: string; expires_at: number } | undefined;
+
+      if (dbRow && dbRow.all_streams_json) {
+        const streams: ResolvedStream[] = JSON.parse(dbRow.all_streams_json);
+        if (Array.isArray(streams) && streams.length > 0) {
+          this.prefetchCache.set(cacheKey, {
+            streams,
+            expiresAt: dbRow.expires_at,
+          });
+          return streams;
+        }
+      }
+    } catch (_) {}
+
     const rawStreams = await this.fetchRawStreams(stremioType, id, configOverride);
     const results: ResolvedStream[] = [];
 
@@ -772,10 +792,44 @@ class AioStreamsService {
     results.sort((a, b) => b.qualityScore - a.qualityScore);
 
     if (results.length > 0) {
+      const expiresAt = now + 12 * 60 * 60 * 1000; // 12 hours rolling TTL
       this.prefetchCache.set(cacheKey, {
         streams: results,
-        expiresAt: now + 15 * 60 * 1000, // 15 mins cache
+        expiresAt,
       });
+
+      // Persist to SQLite stream_cache for instant bingeing and crash recovery
+      try {
+        let imdbId = id;
+        let season = 0;
+        let episode = 0;
+        if (id.includes(':')) {
+          const parts = id.split(':');
+          imdbId = parts[0];
+          season = parseInt(parts[1], 10) || 0;
+          episode = parseInt(parts[2], 10) || 0;
+        }
+
+        db.prepare(`
+          INSERT INTO stream_cache (id, imdb_id, season, episode, best_stream_json, all_streams_json, expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            best_stream_json = excluded.best_stream_json,
+            all_streams_json = excluded.all_streams_json,
+            expires_at = excluded.expires_at
+        `).run(
+          cacheKey,
+          imdbId,
+          season,
+          episode,
+          JSON.stringify(results[0]),
+          JSON.stringify(results),
+          expiresAt
+        );
+
+        // Prune expired stream caches occasionally (keep database tidy)
+        db.prepare('DELETE FROM stream_cache WHERE expires_at < ?').run(now);
+      } catch (_) {}
     }
 
     return results;

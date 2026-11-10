@@ -13,6 +13,7 @@ import { MediaDetailModal } from './components/MediaDetailModal';
 import { DownloadsDrawer } from './components/DownloadsDrawer';
 import { InstantSearch } from './components/InstantSearch';
 import { PlayerOverlay } from './components/PlayerOverlay';
+import { Capacitor } from '@capacitor/core';
 
 interface ActivePlayerState {
   streamUrl: string;
@@ -939,6 +940,54 @@ export const App: React.FC = () => {
             setPlayerState(null);
             fetchContinueWatching();
           }}
+          onNextEpisode={
+            playerState.season !== undefined && playerState.season > 0 && playerState.episode !== undefined && playerState.episode > 0
+              ? async () => {
+                  const nextSeason = playerState.season!;
+                  const nextEpisode = playerState.episode! + 1;
+                  try {
+                    const res = await fetch(
+                      `/api/streams/tv/${encodeURIComponent(playerState.imdbId || '')}?season=${nextSeason}&episode=${nextEpisode}`,
+                      { headers: { 'X-Profile-Id': activeProfile?.id || '' } }
+                    );
+                    if (res.ok) {
+                      const streams: ResolvedStream[] = await res.json();
+                      if (streams.length > 0) {
+                        const isNativeApp = Capacitor.isNativePlatform();
+                        const best = !isNativeApp
+                          ? streams.find((s) => !s.badges.trueHd && !s.badges.dtsHd) || streams[0]
+                          : streams[0];
+
+                        const qParts: string[] = [];
+                        if (best.badges.resolution) qParts.push(best.badges.resolution);
+                        if (best.badges.dolbyVision) qParts.push('DV');
+                        else if (best.badges.hdr10Plus) qParts.push('HDR10+');
+                        else if (best.badges.hdr) qParts.push('HDR');
+                        if (best.badges.atmos) qParts.push('Atmos');
+                        const qBadge = qParts.join(' • ');
+
+                        setPlayerState({
+                          streamUrl: best.url,
+                          title: playerState.title,
+                          episodeTitle: `Episode ${nextEpisode}`,
+                          imdbId: playerState.imdbId,
+                          tmdbId: playerState.tmdbId,
+                          season: nextSeason,
+                          episode: nextEpisode,
+                          isNasCached: best.badges.isNasCached,
+                          provider: best.badges.source,
+                          qualityBadge: qBadge || undefined,
+                        });
+                        return;
+                      }
+                    }
+                  } catch (_) {}
+
+                  setPlayerState(null);
+                  fetchContinueWatching();
+                }
+              : undefined
+          }
         />
       )}
     </div>

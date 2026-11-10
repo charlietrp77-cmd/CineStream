@@ -40,6 +40,7 @@ export interface AppConfig {
   duckdnsSubdomain: string;
   duckdnsToken: string;
   backupPath: string;
+  autoCacheEpisodesAhead: number;
 }
 
 function sanitizeSecret(val?: string): string {
@@ -95,5 +96,6 @@ export const config: AppConfig = {
   sonarrApiKey: sanitizeSecret(process.env.SONARR_API_KEY),
   duckdnsSubdomain: isDuckDnsValid ? rawDuckDns : '',
   duckdnsToken: sanitizeSecret(process.env.DUCKDNS_TOKEN),
+  autoCacheEpisodesAhead: Math.max(0, parseInt(process.env.AUTO_CACHE_EPISODES_AHEAD || '0', 10)),
 };
 

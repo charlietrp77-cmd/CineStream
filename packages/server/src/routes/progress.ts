@@ -3,6 +3,9 @@ import { db } from '../db';
 import { MyListRow, WatchProgressRow } from '../db/schema';
 import { getProfileById } from './profiles';
 import { tmdb } from '../services/tmdb';
+import { aioStreams } from '../services/aiostreams';
+import { arrService } from '../services/arrService';
+import { appSettings } from '../services/appSettings';
 
 export async function progressRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions) {
   // Get in-progress items for active profile ("Continue Watching")
@@ -135,8 +138,92 @@ export async function progressRoutes(fastify: FastifyInstance, _opts: FastifyPlu
       now
     );
 
+    // Binge predictive stream prefetching & conditional ahead-of-time NAS caching
+    if (body.media_type === 'tv' && season > 0 && episode > 0 && body.imdb_id) {
+      const profile = getProfileById(profileId);
+      handleBingeEpisodePrefetchAndCache({
+        imdbId: body.imdb_id,
+        tmdbId: body.tmdb_id,
+        season,
+        episode,
+        title: body.title,
+        configOverride: profile?.aiostreams_config_override,
+      }).catch(() => {});
+    }
+
     return reply.send({ success: true, isCompleted });
   });
+
+  const bingePrefetchSet = new Set<string>();
+
+  async function handleBingeEpisodePrefetchAndCache(params: {
+    imdbId: string;
+    tmdbId: number;
+    season: number;
+    episode: number;
+    title: string;
+    configOverride?: string | null;
+  }) {
+    const { imdbId, tmdbId, season, episode, title, configOverride } = params;
+    const key = `${imdbId}:${season}:${episode}`;
+    if (bingePrefetchSet.has(key)) return;
+    bingePrefetchSet.add(key);
+
+    if (bingePrefetchSet.size > 200) {
+      const first = bingePrefetchSet.values().next().value;
+      if (first) bingePrefetchSet.delete(first);
+    }
+
+    // 1. Predictive stream prefetch for next episode into SQLite stream_cache (12h TTL)
+    const nextEpNum = episode + 1;
+    const nextLookupId = `${imdbId}:${season}:${nextEpNum}`;
+    aioStreams.prefetchStreams('series', nextLookupId, configOverride).catch(() => {});
+
+    // 2. Check if user configured auto-cache episodes ahead (default: 0)
+    const aheadCount = Math.max(0, parseInt(appSettings.get('auto_cache_episodes_ahead', '0'), 10) || 0);
+    if (aheadCount > 0) {
+      for (let i = 1; i <= aheadCount; i++) {
+        const targetEpNum = episode + i;
+        (async () => {
+          try {
+            // Check if already in CineStream NAS cache
+            const inNas = db.prepare(`
+              SELECT status FROM nas_cache_items
+              WHERE imdb_id = ? AND season = ? AND episode = ? AND (status = 'completed' OR status = 'downloading' OR status = 'queued')
+            `).get(imdbId, season, targetEpNum);
+            if (inNas) return;
+
+            // Check if Sonarr already has this episode downloaded
+            const inSonarr = await arrService.isEpisodeDownloadedInSonarr(imdbId, season, targetEpNum);
+            if (inSonarr) {
+              console.log(`[AutoCache] S${season}E${targetEpNum} is already downloaded by Sonarr. Skipping NAS cache.`);
+              return;
+            }
+
+            // Resolve best stream to grab for caching
+            const streams = await aioStreams.resolveStreams('series', `${imdbId}:${season}:${targetEpNum}`, configOverride);
+            if (!streams || streams.length === 0) return;
+            const best = streams[0];
+
+            await arrService.pushSonarrSeries({
+              imdbId,
+              seriesTitle: title,
+              releaseTitle: best.rawReleaseTitle,
+              seasonNumber: season,
+              episodeNumber: targetEpNum,
+              targetSizeBytes: best.badges.sizeBytes || 0,
+              targetBadges: best.badges,
+              targetMagnetUrl: best.magnetUrl,
+              targetNzbUrl: best.nzbUrl,
+            });
+            console.log(`✅ [AutoCache] Pushed S${season}E${targetEpNum} to Sonarr/NAS queue (${i} of ${aheadCount} ahead)`);
+          } catch (err: any) {
+            console.warn(`[AutoCache] S${season}E${targetEpNum} notice:`, err.message);
+          }
+        })();
+      }
+    }
+  }
 
   // Explicitly mark an individual episode or movie as watched / unwatched
   fastify.post('/api/progress/mark-watched', async (req: FastifyRequest, reply: FastifyReply) => {

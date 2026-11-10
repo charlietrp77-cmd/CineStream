@@ -23,12 +23,16 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       radarr_api_key?: string;
       sonarr_url?: string;
       sonarr_api_key?: string;
+      auto_cache_episodes_ahead?: number | string;
     };
 
     if (body.radarr_url !== undefined) appSettings.set('radarr_url', body.radarr_url);
     if (body.radarr_api_key !== undefined) appSettings.set('radarr_api_key', body.radarr_api_key);
     if (body.sonarr_url !== undefined) appSettings.set('sonarr_url', body.sonarr_url);
     if (body.sonarr_api_key !== undefined) appSettings.set('sonarr_api_key', body.sonarr_api_key);
+    if (body.auto_cache_episodes_ahead !== undefined) {
+      appSettings.set('auto_cache_episodes_ahead', String(Math.max(0, parseInt(String(body.auto_cache_episodes_ahead), 10) || 0)));
+    }
 
     const updated = appSettings.getAll();
     const status = await arrService.getStatus();

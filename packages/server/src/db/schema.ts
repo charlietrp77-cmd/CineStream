@@ -85,6 +85,16 @@ export interface TmdbCacheRow {
   expires_at: number;
 }
 
+export interface StreamCacheRow {
+  id: string;
+  imdb_id: string;
+  season: number;
+  episode: number;
+  best_stream_json: string;
+  all_streams_json: string;
+  expires_at: number;
+}
+
 export const DDL_STATEMENTS = `
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
@@ -177,6 +187,16 @@ CREATE TABLE IF NOT EXISTS tmdb_cache (
   expires_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS stream_cache (
+  id TEXT PRIMARY KEY,
+  imdb_id TEXT NOT NULL,
+  season INTEGER NOT NULL DEFAULT 0,
+  episode INTEGER NOT NULL DEFAULT 0,
+  best_stream_json TEXT NOT NULL,
+  all_streams_json TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -187,5 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_watch_progress_profile ON watch_progress(profile_
 CREATE INDEX IF NOT EXISTS idx_my_list_profile ON my_list(profile_id, added_at DESC);
 CREATE INDEX IF NOT EXISTS idx_nas_cache_status ON nas_cache_items(status);
 CREATE INDEX IF NOT EXISTS idx_nas_cache_lookup ON nas_cache_items(imdb_id, season, episode);
+CREATE INDEX IF NOT EXISTS idx_stream_cache_expires ON stream_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_stream_cache_lookup ON stream_cache(imdb_id, season, episode);
 `;
 

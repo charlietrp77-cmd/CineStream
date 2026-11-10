@@ -15,6 +15,7 @@ export class AppSettingsService {
     if (key === 'radarr_api_key') return config.radarrApiKey || fallback;
     if (key === 'sonarr_url') return config.sonarrUrl || fallback;
     if (key === 'sonarr_api_key') return config.sonarrApiKey || fallback;
+    if (key === 'auto_cache_episodes_ahead') return String(config.autoCacheEpisodesAhead || 0);
 
     return fallback;
   }
@@ -34,6 +35,7 @@ export class AppSettingsService {
       radarr_api_key: this.get('radarr_api_key'),
       sonarr_url: this.get('sonarr_url'),
       sonarr_api_key: this.get('sonarr_api_key'),
+      auto_cache_episodes_ahead: this.get('auto_cache_episodes_ahead'),
     };
     return result;
   }
