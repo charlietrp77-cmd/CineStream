@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ArrowLeft,
   Play,
@@ -18,6 +18,8 @@ import {
   Download,
   Maximize,
   Minimize,
+  RefreshCw,
+  Monitor,
 } from 'lucide-react';
 import { TrackInfo } from '@cinestream/capacitor-native-player';
 import { nativePlayer } from '../bridge/nativePlayer';
@@ -56,6 +58,20 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
   onNextEpisode,
 }) => {
   const { activeProfile } = useProfileStore();
+
+  const isDesktopPc = useMemo(() => {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+    return !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  }, []);
+
+  const [playerMode, setPlayerMode] = useState<'vlc_detecting' | 'vlc_active' | 'web_player'>(() => {
+    if (!isDesktopPc) return 'web_player';
+    try {
+      const saved = localStorage.getItem('cinestream_preferred_player');
+      if (saved === 'web') return 'web_player';
+    } catch (_) {}
+    return 'vlc_detecting';
+  });
 
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
@@ -133,9 +149,85 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
   };
 
   const openInVlc = () => {
-    // Also trigger m3u download as instant fallback if vlc:// is unregistered on Windows
     downloadVlcM3u();
   };
+
+  // PC: Auto-attempt launching VLC media player via custom protocol
+  useEffect(() => {
+    if (playerMode !== 'vlc_detecting') return;
+
+    // Dispatch vlc:// protocol attempt via hidden iframe
+    const vlcUrl = `vlc://${absoluteStreamUrl}`;
+    let iframe: HTMLIFrameElement | null = null;
+    try {
+      iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = vlcUrl;
+      document.body.appendChild(iframe);
+    } catch (e) {
+      console.warn('Failed to dispatch vlc:// protocol iframe:', e);
+    }
+
+    let detected = false;
+    // If window blurs or document visibility changes within 1800ms, VLC protocol was handled
+    const fallbackTimer = setTimeout(() => {
+      if (!detected) {
+        // VLC is not installed or declined -> seamlessly switch to web player
+        setPlayerMode('web_player');
+      }
+    }, 1800);
+
+    const onAppBlur = () => {
+      detected = true;
+      clearTimeout(fallbackTimer);
+      setPlayerMode('vlc_active');
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        detected = true;
+        clearTimeout(fallbackTimer);
+        setPlayerMode('vlc_active');
+      }
+    };
+
+    window.addEventListener('blur', onAppBlur, { once: true });
+    document.addEventListener('visibilitychange', onVisibilityChange, { once: true });
+
+    return () => {
+      clearTimeout(fallbackTimer);
+      window.removeEventListener('blur', onAppBlur);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (iframe && iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    };
+  }, [playerMode, absoluteStreamUrl]);
+
+  // Sync initial progress when launching external VLC
+  useEffect(() => {
+    if (playerMode === 'vlc_active' && imdbId) {
+      fetch('/api/progress', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Profile-Id': activeProfile?.id || '',
+        },
+        body: JSON.stringify({
+          imdb_id: imdbId,
+          tmdb_id: tmdbId || 0,
+          media_type: season !== undefined && season > 0 ? 'tv' : 'movie',
+          season: season || 0,
+          episode: episode || 0,
+          title,
+          episode_title: episodeTitle,
+          position_ms: 5000,
+          duration_ms: 0,
+          last_stream_url: streamUrl,
+        }),
+      }).catch(() => {});
+    }
+  }, [playerMode, imdbId, tmdbId, season, episode, title, episodeTitle, streamUrl, activeProfile]);
 
   const osdTimerRef = useRef<NodeJS.Timeout | null>(null);
   const progressSyncRef = useRef<NodeJS.Timeout | null>(null);
@@ -165,6 +257,8 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
   };
 
   useEffect(() => {
+    if (playerMode !== 'web_player') return;
+
     wakeOsd();
 
     // Start video playback
@@ -234,7 +328,7 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
       unsubError();
       nativePlayer.stop();
     };
-  }, [streamUrl]);
+  }, [playerMode, streamUrl]);
 
   const toggleFullscreen = () => {
     wakeOsd();
@@ -249,8 +343,10 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
     }
   };
 
-  // Auto-enter fullscreen on launch in desktop browsers (Android TV experience)
+  // Auto-enter fullscreen on launch in desktop browsers (only when active in web player)
   useEffect(() => {
+    if (playerMode !== 'web_player') return;
+
     if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen().catch(() => {
         // Handled silently if browser policy blocks auto-fullscreen without gesture
@@ -263,7 +359,7 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
 
     document.addEventListener('fullscreenchange', onFsChange);
     return () => document.removeEventListener('fullscreenchange', onFsChange);
-  }, []);
+  }, [playerMode]);
 
   const handleClose = () => {
     if (document.fullscreenElement && document.exitFullscreen) {
@@ -290,6 +386,8 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
 
   // Keyboard navigation (Living Room / Laptop D-pad / Hotkeys)
   useEffect(() => {
+    if (playerMode !== 'web_player') return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger shortcuts if user is typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
@@ -317,7 +415,7 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, currentTimeMs, durationMs]);
+  }, [playerMode, isPlaying, currentTimeMs, durationMs]);
 
   const handleTimelineScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
     wakeOsd();
@@ -329,6 +427,135 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
   const progressPercent = durationMs > 0 ? (currentTimeMs / durationMs) * 100 : 0;
   const showNextEpisodePrompt =
     onNextEpisode && durationMs > 0 && currentTimeMs >= durationMs - 35000;
+
+  if (playerMode === 'vlc_detecting') {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex items-center justify-center p-4 select-none">
+        <div className="max-w-md w-full bg-[#18181b] border border-orange-500/30 rounded-2xl p-6 sm:p-8 text-center space-y-5 shadow-2xl">
+          <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-orange-500/20 animate-ping" />
+            <div className="relative w-14 h-14 rounded-full bg-orange-600/30 border border-orange-500/50 flex items-center justify-center text-orange-400">
+              <Monitor className="w-7 h-7 animate-pulse" />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <h3 className="text-xl font-bold text-white tracking-wide">Launching VLC Media Player</h3>
+            <p className="text-xs text-gray-300">
+              Connecting to VLC on your PC. If VLC is not installed, CineStream will switch to the built-in web player in a moment...
+            </p>
+          </div>
+
+          <div className="flex items-center justify-center gap-2 py-2">
+            <RefreshCw className="w-4 h-4 text-orange-400 animate-spin" />
+            <span className="text-xs font-medium text-orange-300">Waiting for VLC...</span>
+          </div>
+
+          <div className="flex flex-col gap-2 pt-2">
+            <button
+              onClick={() => setPlayerMode('web_player')}
+              className="w-full py-2.5 px-4 bg-white/15 hover:bg-white/25 active:scale-95 text-white font-semibold text-xs rounded-xl transition-all"
+            >
+              Play in Web Player Now
+            </button>
+            <button
+              onClick={() => {
+                try {
+                  localStorage.setItem('cinestream_preferred_player', 'web');
+                } catch (_) {}
+                setPlayerMode('web_player');
+              }}
+              className="w-full py-2 px-3 text-[11px] text-gray-400 hover:text-white transition-colors"
+            >
+              Always use Web Player on this PC
+            </button>
+          </div>
+
+          <button
+            onClick={handleClose}
+            className="text-xs text-gray-500 hover:text-gray-300 pt-2 block mx-auto underline"
+          >
+            Cancel & Return to CineStream
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (playerMode === 'vlc_active') {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex items-center justify-center p-4 select-none">
+        <div className="max-w-lg w-full bg-[#18181b] border border-orange-500/40 rounded-2xl p-6 sm:p-8 text-center space-y-5 shadow-2xl">
+          <div className="w-16 h-16 rounded-full bg-orange-600/20 border border-orange-500/40 flex items-center justify-center mx-auto text-orange-400 shadow-lg">
+            <Monitor className="w-8 h-8" />
+          </div>
+
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400 text-[11px] font-bold uppercase tracking-wider mb-1">
+              <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
+              VLC Active
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-white">{title}</h2>
+            {episodeTitle && (
+              <p className="text-xs sm:text-sm text-gray-300 font-medium">
+                {season ? `S${season} E${episode}: ` : ''}{episodeTitle}
+              </p>
+            )}
+          </div>
+
+          <p className="text-xs text-gray-300 leading-relaxed max-w-sm mx-auto">
+            Stream launched in VLC Media Player. Enjoy full surround sound, HDR/Dolby Vision, and hardware decoding.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-2 pt-2">
+            <button
+              onClick={() => setPlayerMode('web_player')}
+              className="flex-1 py-2.5 px-4 bg-white text-black hover:bg-white/90 active:scale-95 font-bold text-xs rounded-xl shadow-lg transition-all"
+            >
+              Switch to Web Player
+            </button>
+            <button
+              onClick={downloadVlcM3u}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow"
+              title="Download .m3u to re-open stream in VLC"
+            >
+              <Download className="w-4 h-4" />
+              Re-open in VLC (.m3u)
+            </button>
+          </div>
+
+          <div className="space-y-1.5 text-left pt-2">
+            <label className="text-[11px] font-semibold text-gray-400">Stream Link:</label>
+            <div className="flex items-center gap-1.5 bg-black/60 border border-white/20 rounded-xl p-1.5">
+              <input
+                type="text"
+                readOnly
+                value={absoluteStreamUrl}
+                onClick={(e) => (e.target as HTMLInputElement).select()}
+                className="flex-1 bg-transparent border-none text-[11px] text-gray-300 font-mono focus:outline-none select-all px-2 overflow-ellipsis"
+              />
+              <button
+                onClick={copyStreamUrl}
+                className="px-2.5 py-1 bg-white/15 hover:bg-white/25 active:scale-95 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <button
+              onClick={handleClose}
+              className="text-xs text-gray-400 hover:text-white underline"
+            >
+              Return to CineStream
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -397,13 +624,24 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
               <span>{copied ? 'Copied' : 'Copy Stream'}</span>
             </button>
 
+            {isDesktopPc && (
+              <button
+                onClick={() => setPlayerMode('vlc_detecting')}
+                title="Launch stream in VLC Media Player"
+                className="hidden sm:flex items-center gap-1.5 bg-orange-600/80 hover:bg-orange-600 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-all shadow"
+              >
+                <Monitor className="w-3.5 h-3.5" />
+                <span>Open in VLC</span>
+              </button>
+            )}
+
             <button
               onClick={downloadVlcM3u}
               title="Download playlist to open instantly in VLC"
-              className="hidden sm:flex items-center gap-1.5 bg-orange-600/80 hover:bg-orange-600 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-all shadow"
+              className="hidden sm:flex items-center gap-1.5 bg-white/10 hover:bg-white/20 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-all"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>VLC (.m3u)</span>
+              <span>.m3u</span>
             </button>
           </div>
         </div>
