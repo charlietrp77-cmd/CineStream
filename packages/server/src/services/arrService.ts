@@ -574,74 +574,7 @@ export class ArrService {
     }
 
     // 1. Ensure series exists in Sonarr
-    let seriesId: number | null = null;
-    try {
-      const getRes = await undiciFetch(`${sonarr.url}/api/v3/series?includeSeasonImages=false`, {
-        headers: { 'X-Api-Key': sonarr.key },
-      });
-      if (getRes.ok) {
-        const seriesList: any = await getRes.json();
-        const found = seriesList.find((s: any) =>
-          (params.tvdbId && s.tvdbId === params.tvdbId) ||
-          (params.imdbId && s.imdbId === params.imdbId) ||
-          (s.title && s.title.toLowerCase() === params.seriesTitle.toLowerCase())
-        );
-        if (found) seriesId = found.id;
-      }
-
-      if (!seriesId) {
-        // Lookup series
-        const term = params.tvdbId ? `tvdb:${params.tvdbId}` : `imdb:${params.imdbId}`;
-        const lookupRes = await undiciFetch(`${sonarr.url}/api/v3/series/lookup?term=${encodeURIComponent(term)}`, {
-          headers: { 'X-Api-Key': sonarr.key },
-        });
-        if (!lookupRes.ok) throw new Error('Could not lookup series in Sonarr');
-        const lookupList: any = await lookupRes.json();
-        const lookupSeries = lookupList[0];
-        if (!lookupSeries) throw new Error(`Series "${params.seriesTitle}" not found in Sonarr lookup`);
-
-        // Root folder & Quality profile
-        const rootRes = await undiciFetch(`${sonarr.url}/api/v3/rootfolder`, { headers: { 'X-Api-Key': sonarr.key } });
-        const rootFolders: any = await rootRes.json();
-        const rootPath = rootFolders[0]?.path || '/tv';
-
-        const qpRes = await undiciFetch(`${sonarr.url}/api/v3/qualityprofile`, { headers: { 'X-Api-Key': sonarr.key } });
-        const qp: any = await qpRes.json();
-        const qpId = qp[0]?.id || 1;
-
-        const addRes = await undiciFetch(`${sonarr.url}/api/v3/series`, {
-          method: 'POST',
-          headers: {
-            'X-Api-Key': sonarr.key,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            title: lookupSeries.title,
-            tvdbId: lookupSeries.tvdbId,
-            qualityProfileId: qpId,
-            rootFolderPath: rootPath,
-            monitored: true,
-            seasonFolder: true,
-            addOptions: { searchForMissingEpisodes: false },
-          }),
-        });
-        if (addRes.ok) {
-          const added: any = await addRes.json();
-          seriesId = added.id;
-        }
-      }
-    } catch (err: any) {
-      return {
-        success: false,
-        service: 'sonarr',
-        matchedRelease: null,
-        message: `Failed to find or add series in Sonarr: ${err.message}`,
-        isWithin10Percent: false,
-        allCandidatesCount: 0,
-        error: err.message,
-      };
-    }
-
+    const seriesId = await this.ensureSeriesInSonarr(params.imdbId, params.seriesTitle, params.tvdbId);
     if (!seriesId) {
       return {
         success: false,
@@ -952,6 +885,188 @@ export class ArrService {
       }
     } catch (err) {
       console.warn(`Failed to notify Arr service of completed download:`, err);
+    }
+  }
+
+  /**
+   * Looks up a series in Sonarr, adds it if not present, and returns the Sonarr series ID.
+   */
+  public async ensureSeriesInSonarr(imdbId: string, seriesTitle: string, tvdbId?: number): Promise<number | null> {
+    const sonarr = this.getSonarrConfig();
+    if (!sonarr.isConfigured) return null;
+
+    try {
+      const getRes = await undiciFetch(`${sonarr.url}/api/v3/series?includeSeasonImages=false`, {
+        headers: { 'X-Api-Key': sonarr.key },
+      });
+      if (getRes.ok) {
+        const seriesList: any = await getRes.json();
+        const found = seriesList.find((s: any) =>
+          (tvdbId && s.tvdbId === tvdbId) ||
+          (imdbId && s.imdbId === imdbId) ||
+          (s.title && s.title.toLowerCase() === seriesTitle.toLowerCase())
+        );
+        if (found) return found.id;
+      }
+
+      // Lookup series
+      const term = tvdbId ? `tvdb:${tvdbId}` : `imdb:${imdbId}`;
+      const lookupRes = await undiciFetch(`${sonarr.url}/api/v3/series/lookup?term=${encodeURIComponent(term)}`, {
+        headers: { 'X-Api-Key': sonarr.key },
+      });
+      if (!lookupRes.ok) return null;
+      const lookupList: any = await lookupRes.json();
+      const lookupSeries = lookupList[0];
+      if (!lookupSeries) return null;
+
+      // Root folder & Quality profile
+      const rootRes = await undiciFetch(`${sonarr.url}/api/v3/rootfolder`, { headers: { 'X-Api-Key': sonarr.key } });
+      const rootFolders: any = await rootRes.json();
+      const rootPath = rootFolders[0]?.path || '/tv';
+
+      const qpRes = await undiciFetch(`${sonarr.url}/api/v3/qualityprofile`, { headers: { 'X-Api-Key': sonarr.key } });
+      const qp: any = await qpRes.json();
+      const qpId = qp[0]?.id || 1;
+
+      const addRes = await undiciFetch(`${sonarr.url}/api/v3/series`, {
+        method: 'POST',
+        headers: {
+          'X-Api-Key': sonarr.key,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: lookupSeries.title,
+          tvdbId: lookupSeries.tvdbId,
+          qualityProfileId: qpId,
+          rootFolderPath: rootPath,
+          monitored: true,
+          seasonFolder: true,
+          addOptions: { searchForMissingEpisodes: false },
+        }),
+      });
+      if (addRes.ok) {
+        const added: any = await addRes.json();
+        return added.id || null;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /**
+   * Returns total number of episodes in a specific season registered in Sonarr.
+   */
+  public async getSonarrSeasonTotalEpisodes(imdbId: string, seriesTitle: string, seasonNumber: number, tvdbId?: number): Promise<number> {
+    const sonarr = this.getSonarrConfig();
+    if (!sonarr.isConfigured) return 0;
+    const seriesId = await this.ensureSeriesInSonarr(imdbId, seriesTitle, tvdbId);
+    if (!seriesId) return 0;
+
+    try {
+      const epRes = await undiciFetch(`${sonarr.url}/api/v3/episode?seriesId=${seriesId}&seasonNumber=${seasonNumber}`, {
+        headers: { 'X-Api-Key': sonarr.key },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!epRes.ok) return 0;
+      const episodes = (await epRes.json()) as any[];
+      return Array.isArray(episodes) ? episodes.length : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /**
+   * Triggers download searches for all missing episodes in a season in strict sequential order (E1, then E2, etc.).
+   */
+  public async downloadSonarrSeasonInOrder(
+    imdbId: string,
+    seriesTitle: string,
+    seasonNumber: number,
+    startEpisodeNumber: number = 1,
+    tvdbId?: number
+  ): Promise<{ success: boolean; queuedEpisodes: number[]; totalMissing: number }> {
+    const sonarr = this.getSonarrConfig();
+    if (!sonarr.isConfigured) {
+      return { success: false, queuedEpisodes: [], totalMissing: 0 };
+    }
+
+    const seriesId = await this.ensureSeriesInSonarr(imdbId, seriesTitle, tvdbId);
+    if (!seriesId) {
+      return { success: false, queuedEpisodes: [], totalMissing: 0 };
+    }
+
+    try {
+      const epRes = await undiciFetch(`${sonarr.url}/api/v3/episode?seriesId=${seriesId}&seasonNumber=${seasonNumber}`, {
+        headers: { 'X-Api-Key': sonarr.key },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!epRes.ok) return { success: false, queuedEpisodes: [], totalMissing: 0 };
+      const episodes = (await epRes.json()) as any[];
+      if (!Array.isArray(episodes) || episodes.length === 0) {
+        return { success: false, queuedEpisodes: [], totalMissing: 0 };
+      }
+
+      // Filter for missing episodes >= startEpisodeNumber
+      const missing = episodes
+        .filter((ep) => ep.episodeNumber >= startEpisodeNumber && !ep.hasFile)
+        .sort((a, b) => a.episodeNumber - b.episodeNumber);
+
+      if (missing.length === 0) {
+        console.log(`[Sonarr] Season ${seasonNumber} (from ep ${startEpisodeNumber}) is already fully downloaded.`);
+        return { success: true, queuedEpisodes: [], totalMissing: 0 };
+      }
+
+      // Ensure the season is monitored in Sonarr
+      try {
+        const sRes = await undiciFetch(`${sonarr.url}/api/v3/series/${seriesId}`, {
+          headers: { 'X-Api-Key': sonarr.key },
+        });
+        if (sRes.ok) {
+          const sData: any = await sRes.json();
+          const targetSeason = sData.seasons?.find((s: any) => s.seasonNumber === seasonNumber);
+          if (targetSeason && !targetSeason.monitored) {
+            targetSeason.monitored = true;
+            await undiciFetch(`${sonarr.url}/api/v3/series/${seriesId}`, {
+              method: 'PUT',
+              headers: { 'X-Api-Key': sonarr.key, 'Content-Type': 'application/json' },
+              body: JSON.stringify(sData),
+            });
+          }
+        }
+      } catch (_) {}
+
+      // Trigger EpisodeSearch in sequential order
+      const queuedEpisodes: number[] = [];
+      for (const ep of missing) {
+        try {
+          const cmdRes = await undiciFetch(`${sonarr.url}/api/v3/command`, {
+            method: 'POST',
+            headers: {
+              'X-Api-Key': sonarr.key,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: 'EpisodeSearch',
+              episodeIds: [ep.id],
+            }),
+          });
+          if (cmdRes.ok) {
+            queuedEpisodes.push(ep.episodeNumber);
+            console.log(`✅ [Sonarr] Queued S${seasonNumber}E${ep.episodeNumber} download search in sequential order`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        } catch (err: any) {
+          console.warn(`[Sonarr] Failed to queue episode S${seasonNumber}E${ep.episodeNumber}:`, err.message);
+        }
+      }
+
+      return {
+        success: true,
+        queuedEpisodes,
+        totalMissing: missing.length,
+      };
+    } catch (err: any) {
+      console.warn(`[Sonarr] downloadSonarrSeasonInOrder error:`, err.message);
+      return { success: false, queuedEpisodes: [], totalMissing: 0 };
     }
   }
 

@@ -142,6 +142,7 @@ export async function progressRoutes(fastify: FastifyInstance, _opts: FastifyPlu
     if (body.media_type === 'tv' && season > 0 && episode > 0 && body.imdb_id) {
       const profile = getProfileById(profileId);
       handleBingeEpisodePrefetchAndCache({
+        profileId,
         imdbId: body.imdb_id,
         tmdbId: body.tmdb_id,
         season,
@@ -157,6 +158,7 @@ export async function progressRoutes(fastify: FastifyInstance, _opts: FastifyPlu
   const bingePrefetchSet = new Set<string>();
 
   async function handleBingeEpisodePrefetchAndCache(params: {
+    profileId: string;
     imdbId: string;
     tmdbId: number;
     season: number;
@@ -164,7 +166,7 @@ export async function progressRoutes(fastify: FastifyInstance, _opts: FastifyPlu
     title: string;
     configOverride?: string | null;
   }) {
-    const { imdbId, tmdbId, season, episode, title, configOverride } = params;
+    const { profileId, imdbId, tmdbId, season, episode, title, configOverride } = params;
     const key = `${imdbId}:${season}:${episode}`;
     if (bingePrefetchSet.has(key)) return;
     bingePrefetchSet.add(key);
@@ -174,16 +176,53 @@ export async function progressRoutes(fastify: FastifyInstance, _opts: FastifyPlu
       if (first) bingePrefetchSet.delete(first);
     }
 
-    // 1. Predictive stream prefetch for next episode into SQLite stream_cache (12h TTL)
+    // 1. Predictive stream prefetch for next episode into SQLite stream_cache (12h rolling TTL)
     const nextEpNum = episode + 1;
     const nextLookupId = `${imdbId}:${season}:${nextEpNum}`;
     aioStreams.prefetchStreams('series', nextLookupId, configOverride).catch(() => {});
 
-    // 2. Check if user configured auto-cache episodes ahead (default: 0)
-    const aheadCount = Math.max(0, parseInt(appSettings.get('auto_cache_episodes_ahead', '0'), 10) || 0);
-    if (aheadCount > 0) {
+    // 2. Count distinct episodes watched for this series by active profile
+    const watchCountRow = db.prepare(`
+      SELECT COUNT(DISTINCT season || ':' || episode) as cnt
+      FROM watch_progress
+      WHERE profile_id = ? AND imdb_id = ? AND media_type = 'tv' AND (is_completed = 1 OR position_ms >= 180000)
+    `).get(profileId, imdbId) as { cnt: number } | undefined;
+    const watchedCount = watchCountRow?.cnt || 0;
+
+    // 3. Determine total episode count for the current season
+    let totalSeasonEpisodes = await arrService.getSonarrSeasonTotalEpisodes(imdbId, title, season, tmdbId);
+    if (totalSeasonEpisodes === 0 && tmdbId > 0) {
+      try {
+        const tmdbEps = await tmdb.getSeasonEpisodes(tmdbId, season, imdbId);
+        totalSeasonEpisodes = tmdbEps.length;
+      } catch (_) {}
+    }
+
+    const isLastEpisodeOfSeason = totalSeasonEpisodes > 0 && episode >= totalSeasonEpisodes;
+
+    // RULE 3: Reached season finale -> Download entire next season in sequential order (E1, then E2, etc.)
+    if (isLastEpisodeOfSeason && watchedCount >= 3) {
+      const nextSeasonNum = season + 1;
+      console.log(`🎬 [Binge Manager] Season finale reached (S${season}E${episode}). Downloading Season ${nextSeasonNum} in sequential order!`);
+      arrService.downloadSonarrSeasonInOrder(imdbId, title, nextSeasonNum, 1, tmdbId).catch(() => {});
+      return;
+    }
+
+    // RULE 2: Watched more than 5 episodes -> User committed, download rest of current season in sequential order
+    if (watchedCount > 5) {
+      console.log(`🔥 [Binge Manager] User committed (>5 episodes watched: ${watchedCount}). Downloading rest of Season ${season} starting at E${episode + 1} in order!`);
+      arrService.downloadSonarrSeasonInOrder(imdbId, title, season, episode + 1, tmdbId).catch(() => {});
+      return;
+    }
+
+    // RULE 1: Watched 3 to 5 episodes -> Rolling cache (keep 2 episodes ahead downloaded on NAS)
+    if (watchedCount >= 3) {
+      const aheadCount = Math.max(2, parseInt(appSettings.get('auto_cache_episodes_ahead', '0'), 10) || 0);
+      console.log(`🍿 [Binge Manager] Rolling cache active (${watchedCount} episodes watched). Caching next ${aheadCount} episodes ahead.`);
       for (let i = 1; i <= aheadCount; i++) {
         const targetEpNum = episode + i;
+        if (totalSeasonEpisodes > 0 && targetEpNum > totalSeasonEpisodes) break;
+
         (async () => {
           try {
             // Check if already in CineStream NAS cache
@@ -194,9 +233,9 @@ export async function progressRoutes(fastify: FastifyInstance, _opts: FastifyPlu
             if (inNas) return;
 
             // Check if Sonarr already has this episode downloaded
-            const inSonarr = await arrService.isEpisodeDownloadedInSonarr(imdbId, season, targetEpNum);
+            const inSonarr = await arrService.isEpisodeDownloadedInSonarr(imdbId, season, targetEpNum, tmdbId);
             if (inSonarr) {
-              console.log(`[AutoCache] S${season}E${targetEpNum} is already downloaded by Sonarr. Skipping NAS cache.`);
+              console.log(`[RollingCache] S${season}E${targetEpNum} is already downloaded by Sonarr. Skipping NAS cache.`);
               return;
             }
 
@@ -216,9 +255,9 @@ export async function progressRoutes(fastify: FastifyInstance, _opts: FastifyPlu
               targetMagnetUrl: best.magnetUrl,
               targetNzbUrl: best.nzbUrl,
             });
-            console.log(`✅ [AutoCache] Pushed S${season}E${targetEpNum} to Sonarr/NAS queue (${i} of ${aheadCount} ahead)`);
+            console.log(`✅ [RollingCache] Pushed S${season}E${targetEpNum} to Sonarr/NAS queue (+${i} ahead)`);
           } catch (err: any) {
-            console.warn(`[AutoCache] S${season}E${targetEpNum} notice:`, err.message);
+            console.warn(`[RollingCache] S${season}E${targetEpNum} notice:`, err.message);
           }
         })();
       }
