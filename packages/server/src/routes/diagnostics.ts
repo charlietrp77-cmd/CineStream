@@ -458,7 +458,7 @@ export async function diagnosticsRoutes(fastify: FastifyInstance, _opts: Fastify
         backups_mode: `Daily automated configuration snapshots and SQLite database backups are stored in '${config.backupPath}' with 14-day rolling retention.`,
         remote_access: config.duckdnsSubdomain
           ? `Automatic SSL/HTTPS enabled via DuckDNS (${config.duckdnsSubdomain}.duckdns.org) terminated by Caddy reverse proxy.`
-          : 'Local LAN HTTP mode (Port 3000). Add DUCKDNS_SUBDOMAIN to .env for automatic external HTTPS.',
+          : 'Local LAN HTTP mode (Port 3000). Set ENABLE_CADDY_DUCKDNS=true if external Stremio HTTPS is needed.',
       },
       components: {
         nas_storage: {

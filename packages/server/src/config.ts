@@ -37,6 +37,7 @@ export interface AppConfig {
   radarrApiKey: string;
   sonarrUrl: string;
   sonarrApiKey: string;
+  enableCaddyDuckdns: boolean;
   duckdnsSubdomain: string;
   duckdnsToken: string;
   backupPath: string;
@@ -53,8 +54,11 @@ function sanitizeSecret(val?: string): string {
   return s;
 }
 
+const enableCaddyDuckdns = /^(true|1|yes)$/i.test((process.env.ENABLE_CADDY_DUCKDNS || '').trim())
+  || /^(caddy|ssl|true)$/i.test((process.env.COMPOSE_PROFILES || '').trim());
+
 const rawDuckDns = (process.env.DUCKDNS_SUBDOMAIN || '').trim();
-const isDuckDnsValid = rawDuckDns && !/^(your[_-]|sample|placeholder)/i.test(rawDuckDns);
+const isDuckDnsValid = enableCaddyDuckdns && rawDuckDns && !/^(your[_-]|sample|placeholder|mycinestream)/i.test(rawDuckDns);
 
 const defaultPublicUrl = isDuckDnsValid
   ? `https://${rawDuckDns}.duckdns.org`
@@ -94,6 +98,7 @@ export const config: AppConfig = {
   radarrApiKey: sanitizeSecret(process.env.RADARR_API_KEY),
   sonarrUrl: (process.env.SONARR_URL || '').replace(/\/$/, ''),
   sonarrApiKey: sanitizeSecret(process.env.SONARR_API_KEY),
+  enableCaddyDuckdns,
   duckdnsSubdomain: isDuckDnsValid ? rawDuckDns : '',
   duckdnsToken: sanitizeSecret(process.env.DUCKDNS_TOKEN),
   autoCacheEpisodesAhead: Math.max(0, parseInt(process.env.AUTO_CACHE_EPISODES_AHEAD || '0', 10)),

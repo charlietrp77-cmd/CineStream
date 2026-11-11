@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     profiles:
       - caddy
+      - ssl
+      - "true"
     ports:
       - "${CADDY_HTTP_PORT:-80}:80"
       - "${CADDY_HTTPS_PORT:-443}:443"
@@ -67,6 +69,10 @@ services:
     image: lscr.io/linuxserver/duckdns:latest
     container_name: cinestream-duckdns
     restart: unless-stopped
+    profiles:
+      - caddy
+      - ssl
+      - "true"
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
@@ -115,6 +121,7 @@ services:
       - BACKUP_PATH=/mnt/backups
       - NAS_MAX_CONCURRENT_DOWNLOADS=${NAS_MAX_CONCURRENT_DOWNLOADS:-2}
       - NAS_THREADS_PER_DOWNLOAD=${NAS_THREADS_PER_DOWNLOAD:-6}
+      - ENABLE_CADDY_DUCKDNS=${ENABLE_CADDY_DUCKDNS:-false}
       - DUCKDNS_SUBDOMAIN=${DUCKDNS_SUBDOMAIN:-}
       - DUCKDNS_TOKEN=${DUCKDNS_TOKEN:-}
       - PUBLIC_SERVER_URL=${PUBLIC_SERVER_URL:-}
