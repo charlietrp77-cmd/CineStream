@@ -8,6 +8,7 @@ export interface ArrStatus {
     configured: boolean;
     online: boolean;
     url: string;
+    externalUrl?: string;
     version?: string;
     error?: string;
   };
@@ -15,6 +16,7 @@ export interface ArrStatus {
     configured: boolean;
     online: boolean;
     url: string;
+    externalUrl?: string;
     version?: string;
     error?: string;
   };
@@ -57,6 +59,20 @@ function formatBytes(bytes: number): string {
   return `${mb.toFixed(0)} MB`;
 }
 
+function resolveExternalArrUrl(rawUrl: string, clientHost?: string, defaultPort = 7878): string {
+  if (!rawUrl) return '';
+  try {
+    const parsed = new URL(rawUrl);
+    const host = clientHost || 'localhost';
+    const isContainer = /^(radarr|sonarr|cinestream|cinestream-server|sabnzbd|localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(parsed.hostname);
+    const resolvedHostname = isContainer ? host : parsed.hostname;
+    const port = parsed.port || String(defaultPort);
+    return `${parsed.protocol || 'http:'}//${resolvedHostname}:${port}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+  } catch (_) {
+    return `http://${clientHost || 'localhost'}:${defaultPort}`;
+  }
+}
+
 export class ArrService {
   private getRadarrConfig() {
     const url = appSettings.get('radarr_url').replace(/\/$/, '');
@@ -70,13 +86,23 @@ export class ArrService {
     return { url, key, isConfigured: Boolean(url && key) };
   }
 
-  public async getStatus(): Promise<ArrStatus> {
+  public async getStatus(clientHost?: string): Promise<ArrStatus> {
     const radarr = this.getRadarrConfig();
     const sonarr = this.getSonarrConfig();
 
     const status: ArrStatus = {
-      radarr: { configured: radarr.isConfigured, online: false, url: radarr.url },
-      sonarr: { configured: sonarr.isConfigured, online: false, url: sonarr.url },
+      radarr: {
+        configured: radarr.isConfigured,
+        online: false,
+        url: radarr.url,
+        externalUrl: resolveExternalArrUrl(radarr.url, clientHost, 7878),
+      },
+      sonarr: {
+        configured: sonarr.isConfigured,
+        online: false,
+        url: sonarr.url,
+        externalUrl: resolveExternalArrUrl(sonarr.url, clientHost, 8989),
+      },
     };
 
     if (radarr.isConfigured) {

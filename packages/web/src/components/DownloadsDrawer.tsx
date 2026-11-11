@@ -19,6 +19,7 @@ import {
   Box,
   Radar,
   Settings,
+  ExternalLink,
 } from 'lucide-react';
 import { DiskSpaceInfo, NasCacheItem, OfflineMediaItem, ProviderQuota, ResolvedStream, ArrStatus } from '../types/api';
 import { useOfflineStore } from '../store/useOfflineStore';
@@ -225,6 +226,27 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
     return (bytesPerSec / (1024 * 1024)).toFixed(1) + ' MB/s';
   };
 
+  const getExternalArrUrl = (rawUrl?: string, externalUrl?: string, defaultPort = 7878): string => {
+    if (externalUrl && !/^(radarr|sonarr|cinestream|sabnzbd|localhost|127\.0\.0\.1)/i.test(new URL(externalUrl).hostname)) {
+      return externalUrl;
+    }
+    if (!rawUrl) return '';
+    try {
+      const parsed = new URL(rawUrl);
+      const clientHost = window.location.hostname || 'localhost';
+      const isContainer = /^(radarr|sonarr|cinestream|cinestream-server|sabnzbd|localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(parsed.hostname);
+      const hostname = isContainer ? clientHost : parsed.hostname;
+      const port = parsed.port || String(defaultPort);
+      return `${parsed.protocol || 'http:'}//${hostname}:${port}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+    } catch (_) {
+      const clientHost = window.location.hostname || 'localhost';
+      return `http://${clientHost}:${defaultPort}`;
+    }
+  };
+
+  const radarrLink = getExternalArrUrl(arrStatus?.radarr.url, arrStatus?.radarr.externalUrl, 7878);
+  const sonarrLink = getExternalArrUrl(arrStatus?.sonarr.url, arrStatus?.sonarr.externalUrl, 8989);
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm select-none">
       <div className="w-full max-w-xl h-full bg-[#181818] border-l border-white/10 flex flex-col shadow-2xl text-white">
@@ -238,6 +260,71 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
             <X className="w-6 h-6" />
           </button>
         </div>
+
+        {/* Cloud Provider Quotas (TorBox, Premiumize, Easynews, RealDebrid, AllDebrid) - Above Storage Tabs */}
+        {providerQuotas.length > 0 && (
+          <div className="px-6 py-3.5 border-b border-white/10 bg-white/[0.02] space-y-2.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-gray-300 flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                Debrid & Usenet Provider Quotas
+              </span>
+              <span className="text-[11px] text-gray-400">Cloud Stream Balance</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {providerQuotas.map((q) => (
+                <div
+                  key={q.provider}
+                  className="p-2.5 bg-black/40 rounded-lg border border-white/5 space-y-1.5 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {q.provider === 'torbox' && <Box className="w-4 h-4 text-emerald-400 stroke-[2.2]" />}
+                      {q.provider === 'premiumize' && <PremiumizeIcon className="w-4 h-4" />}
+                      {q.provider === 'easynews' && <FileText className="w-4 h-4 text-amber-400" />}
+                      {q.provider === 'realdebrid' && <ShieldCheck className="w-4 h-4 text-emerald-400" />}
+                      {q.provider === 'alldebrid' && <Server className="w-4 h-4 text-orange-400" />}
+                      <div>
+                        <p className="font-bold text-gray-200">{q.name}</p>
+                        {q.plan && <p className="text-[10px] text-gray-400">{q.plan}</p>}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-white">{q.remainingGbText}</p>
+                      <p className="text-[10px] text-gray-400">
+                        {q.daysRemaining !== undefined ? `${q.daysRemaining}d left` : 'remaining'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {q.percentUsed !== undefined && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px] text-gray-400">
+                        <span>Used: {q.percentUsed}%</span>
+                        {q.totalBytes && (
+                          <span>{Math.round(q.totalBytes / (1024 * 1024 * 1024))} GB cap</span>
+                        )}
+                      </div>
+                      <div className="h-1.5 w-full bg-gray-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all ${
+                            q.percentUsed > 90
+                              ? 'bg-red-500'
+                              : q.percentUsed > 75
+                              ? 'bg-amber-500'
+                              : 'bg-cyan-500'
+                          }`}
+                          style={{ width: `${q.percentUsed}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Tab Selector */}
         <div className="flex border-b border-white/10">
@@ -289,71 +376,6 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                 </div>
               )}
 
-              {/* Cloud Provider Quotas (TorBox, Premiumize, Easynews, RealDebrid, AllDebrid) */}
-              {providerQuotas.length > 0 && (
-                <div className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-gray-300 flex items-center gap-1.5">
-                      <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                      Debrid & Usenet Provider Quotas
-                    </span>
-                    <span className="text-[11px] text-gray-400">Monthly / Fair-Use</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {providerQuotas.map((q) => (
-                      <div
-                        key={q.provider}
-                        className="p-3 bg-black/40 rounded-lg border border-white/5 space-y-2 text-xs"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            {q.provider === 'torbox' && <Box className="w-4 h-4 text-emerald-400 stroke-[2.2]" />}
-                            {q.provider === 'premiumize' && <PremiumizeIcon className="w-4 h-4" />}
-                            {q.provider === 'easynews' && <FileText className="w-4 h-4 text-amber-400" />}
-                            {q.provider === 'realdebrid' && <ShieldCheck className="w-4 h-4 text-emerald-400" />}
-                            {q.provider === 'alldebrid' && <Server className="w-4 h-4 text-orange-400" />}
-                            <div>
-                              <p className="font-bold text-gray-200">{q.name}</p>
-                              {q.plan && <p className="text-[10px] text-gray-400">{q.plan}</p>}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-white">{q.remainingGbText}</p>
-                            <p className="text-[10px] text-gray-400">
-                              {q.daysRemaining !== undefined ? `${q.daysRemaining}d left` : 'remaining'}
-                            </p>
-                          </div>
-                        </div>
-
-                        {q.percentUsed !== undefined && (
-                          <div className="space-y-1">
-                            <div className="flex justify-between text-[10px] text-gray-400">
-                              <span>Used: {q.percentUsed}%</span>
-                              {q.totalBytes && (
-                                <span>{Math.round(q.totalBytes / (1024 * 1024 * 1024))} GB cap</span>
-                              )}
-                            </div>
-                            <div className="h-1.5 w-full bg-gray-800 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full transition-all ${
-                                  q.percentUsed > 90
-                                    ? 'bg-red-500'
-                                    : q.percentUsed > 75
-                                    ? 'bg-amber-500'
-                                    : 'bg-cyan-500'
-                                }`}
-                                style={{ width: `${q.percentUsed}%` }}
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Radarr & Sonarr Integration Status & Settings */}
               <div className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3">
                 <div className="flex items-center justify-between text-xs">
@@ -370,17 +392,28 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                   </button>
                 </div>
 
-                {/* Status Badges */}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2.5 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between">
-                    <div>
+                {/* Status Badges with Clickable IP URLs */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className="p-2.5 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
                       <span className="font-bold text-gray-200">Radarr (Movies)</span>
-                      <p className="text-[10px] text-gray-400 truncate max-w-[140px]">
-                        {arrStatus?.radarr.url || 'Not set'}
-                      </p>
+                      {radarrLink ? (
+                        <a
+                          href={radarrLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline truncate mt-0.5 group"
+                          title={`Open Radarr at ${radarrLink}`}
+                        >
+                          <span className="truncate">{radarrLink}</span>
+                          <ExternalLink className="w-3 h-3 flex-shrink-0 text-cyan-400/80 group-hover:text-cyan-300" />
+                        </a>
+                      ) : (
+                        <p className="text-[10px] text-gray-400 truncate">Not set</p>
+                      )}
                     </div>
                     <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${
                         arrStatus?.radarr.online
                           ? 'bg-emerald-500/20 text-emerald-400'
                           : arrStatus?.radarr.configured
@@ -392,15 +425,26 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                     </span>
                   </div>
 
-                  <div className="p-2.5 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between">
-                    <div>
+                  <div className="p-2.5 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
                       <span className="font-bold text-gray-200">Sonarr (Series)</span>
-                      <p className="text-[10px] text-gray-400 truncate max-w-[140px]">
-                        {arrStatus?.sonarr.url || 'Not set'}
-                      </p>
+                      {sonarrLink ? (
+                        <a
+                          href={sonarrLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline truncate mt-0.5 group"
+                          title={`Open Sonarr at ${sonarrLink}`}
+                        >
+                          <span className="truncate">{sonarrLink}</span>
+                          <ExternalLink className="w-3 h-3 flex-shrink-0 text-cyan-400/80 group-hover:text-cyan-300" />
+                        </a>
+                      ) : (
+                        <p className="text-[10px] text-gray-400 truncate">Not set</p>
+                      )}
                     </div>
                     <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${
                         arrStatus?.sonarr.online
                           ? 'bg-emerald-500/20 text-emerald-400'
                           : arrStatus?.sonarr.configured

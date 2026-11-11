@@ -5,8 +5,10 @@ import { StreamBadges } from '../services/aiostreams';
 
 export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions) {
   // Check Radarr & Sonarr status
-  fastify.get('/api/arr/status', async (_req: FastifyRequest, reply: FastifyReply) => {
-    const status = await arrService.getStatus();
+  fastify.get('/api/arr/status', async (req: FastifyRequest, reply: FastifyReply) => {
+    const rawHost = req.headers['x-forwarded-host'] || req.headers.host || '';
+    const clientHost = String(rawHost).split(':')[0].trim();
+    const status = await arrService.getStatus(clientHost);
     return reply.send(status);
   });
 

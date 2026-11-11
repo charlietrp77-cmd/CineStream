@@ -202,42 +202,75 @@ async function fetchPremiumizeQuota(apiKey: string): Promise<ProviderQuota | nul
 async function fetchEasynewsQuota(username: string, pass: string): Promise<ProviderQuota | null> {
   try {
     const auth = Buffer.from(`${username}:${pass}`).toString('base64');
-    const res = await undiciFetch('https://members.easynews.com/2.0/user/usage', {
-      headers: {
-        Authorization: `Basic ${auth}`,
-        Accept: 'application/json',
-        'User-Agent': 'CineStream/1.0.0',
-      },
+    const headers = {
+      Authorization: `Basic ${auth}`,
+      Accept: 'text/html,application/xhtml+xml,application/xml',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    };
+
+    let html = '';
+    const res = await undiciFetch('https://members.easynews.com/index.html', {
+      headers,
       signal: AbortSignal.timeout(6000),
     });
 
     if (res.ok) {
-      const json: any = await res.json().catch(() => null);
-      if (json) {
-        const gigsRemaining =
-          json.gigs_remaining ??
-          json.remaining_gigs ??
-          json.gigs_left ??
-          (json.bytes_remaining ? Math.round(json.bytes_remaining / (1024 * 1024 * 1024)) : undefined);
-        const gigsTotal = json.gigs_total ?? json.total_gigs ?? 1000;
+      html = await res.text();
+    } else {
+      const res2 = await undiciFetch('https://members.easynews.com/', {
+        headers,
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res2.ok) {
+        html = await res2.text();
+      }
+    }
 
-        if (gigsRemaining !== undefined) {
-          const remainingBytes = gigsRemaining * 1024 * 1024 * 1024;
-          const totalBytes = gigsTotal * 1024 * 1024 * 1024;
-          const percentUsed = Math.min(100, Math.round(((totalBytes - remainingBytes) / totalBytes) * 100));
+    if (html) {
+      const gigMatch =
+        html.match(/You have <strong>([0-9.,]+)<\/strong>\s*gigabytes\s*\(<strong>([0-9.,]+)<\/strong>\s*bytes\)\s*remaining/i) ||
+        html.match(/<strong>([0-9.,]+)\s*gigabytes\s*<\/strong>\s*(?:<br\s*\/?>)?\s*remaining in your gig bank/i) ||
+        html.match(/([0-9.,]+)\s*gigabytes.*?remaining/i);
 
-          return {
-            provider: 'easynews',
-            name: 'Easynews',
-            shortName: 'Easynews',
-            status: percentUsed > 90 ? 'warning' : 'active',
-            plan: 'Web Usenet',
-            remainingBytes,
-            totalBytes,
-            remainingGbText: `${gigsRemaining} GB`,
-            percentUsed,
-          };
+      let remainingGigs: number | undefined;
+      let remainingBytes: number | undefined;
+
+      if (gigMatch) {
+        remainingGigs = parseFloat(gigMatch[1].replace(/,/g, ''));
+        if (gigMatch[2]) {
+          remainingBytes = parseInt(gigMatch[2].replace(/,/g, ''), 10);
+        } else {
+          remainingBytes = Math.round(remainingGigs * 1024 * 1024 * 1024);
         }
+      }
+
+      const planMatch = html.match(/You have an?\s+([^<]+?)\s+account/i);
+      const plan = planMatch ? planMatch[1].trim() : 'Web Usenet';
+
+      let totalGigs = 1000;
+      if (/1\s*TB/i.test(plan)) totalGigs = 1000;
+      else if (/2\s*TB/i.test(plan)) totalGigs = 2000;
+      else if (/500\s*GB/i.test(plan)) totalGigs = 500;
+      else if (/250\s*GB/i.test(plan)) totalGigs = 250;
+      else if (/150\s*GB/i.test(plan)) totalGigs = 150;
+      else if (/40\s*GB/i.test(plan)) totalGigs = 40;
+      else if (/20\s*GB/i.test(plan)) totalGigs = 20;
+
+      const totalBytes = totalGigs * 1024 * 1024 * 1024;
+
+      if (remainingGigs !== undefined) {
+        const percentUsed = Math.min(100, Math.max(0, Math.round(((totalBytes - (remainingBytes || remainingGigs * 1024 * 1024 * 1024)) / totalBytes) * 100)));
+        return {
+          provider: 'easynews',
+          name: 'Easynews',
+          shortName: 'Easynews',
+          status: percentUsed > 90 ? 'warning' : 'active',
+          plan,
+          remainingBytes: remainingBytes || remainingGigs * 1024 * 1024 * 1024,
+          totalBytes,
+          remainingGbText: `${remainingGigs.toFixed(1)} GB`,
+          percentUsed,
+        };
       }
     }
 

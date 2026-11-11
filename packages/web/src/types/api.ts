@@ -186,6 +186,7 @@ export interface ArrStatus {
     configured: boolean;
     online: boolean;
     url: string;
+    externalUrl?: string;
     version?: string;
     error?: string;
   };
@@ -193,6 +194,7 @@ export interface ArrStatus {
     configured: boolean;
     online: boolean;
     url: string;
+    externalUrl?: string;
     version?: string;
     error?: string;
   };
