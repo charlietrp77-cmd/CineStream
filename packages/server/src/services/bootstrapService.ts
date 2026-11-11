@@ -76,9 +76,31 @@ export class BootstrapService {
     });
   }
 
+  private ensureFilePermissions(targetPath: string): void {
+    try {
+      if (fs.existsSync(targetPath)) {
+        fs.chmodSync(targetPath, 0o666);
+        try {
+          fs.chownSync(targetPath, 1000, 1000);
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  private writeConfigFile(filePath: string, content: string): void {
+    try {
+      fs.writeFileSync(filePath, content, { encoding: 'utf8', mode: 0o666 });
+      this.ensureFilePermissions(filePath);
+    } catch (err: any) {
+      console.warn(`[Bootstrap] Error writing config file to ${filePath}:`, err.message);
+    }
+  }
+
   private bootstrapRadarr(): void {
     try {
+      this.tryCreateDir(this.radarrConfigDir);
       const configXmlPath = path.join(this.radarrConfigDir, 'config.xml');
+      this.ensureFilePermissions(configXmlPath);
       let key = appSettings.get('radarr_api_key');
       if (!key) {
         key = 'cs_arr_' + crypto.randomBytes(12).toString('hex');
@@ -97,7 +119,7 @@ export class BootstrapService {
         }
 
         if (rawContent.trim() !== sanitized.trim()) {
-          fs.writeFileSync(configXmlPath, sanitized, 'utf8');
+          this.writeConfigFile(configXmlPath, sanitized);
           console.log(`[Bootstrap] Sanitized & repaired Radarr config.xml at ${configXmlPath}`);
         }
         return;
@@ -109,7 +131,7 @@ export class BootstrapService {
           appSettings.set('radarr_url', 'http://radarr:7878');
         }
         const xml = sanitizeArrConfigXml('', key, 7878);
-        fs.writeFileSync(configXmlPath, xml, 'utf8');
+        this.writeConfigFile(configXmlPath, xml);
         console.log(`[Bootstrap] Pre-seeded Radarr config.xml with zero-touch API key at ${configXmlPath}`);
       }
     } catch (err: any) {
@@ -119,7 +141,9 @@ export class BootstrapService {
 
   private bootstrapSonarr(): void {
     try {
+      this.tryCreateDir(this.sonarrConfigDir);
       const configXmlPath = path.join(this.sonarrConfigDir, 'config.xml');
+      this.ensureFilePermissions(configXmlPath);
       let key = appSettings.get('sonarr_api_key');
       if (!key) {
         key = 'cs_arr_' + crypto.randomBytes(12).toString('hex');
@@ -138,7 +162,7 @@ export class BootstrapService {
         }
 
         if (rawContent.trim() !== sanitized.trim()) {
-          fs.writeFileSync(configXmlPath, sanitized, 'utf8');
+          this.writeConfigFile(configXmlPath, sanitized);
           console.log(`[Bootstrap] Sanitized & repaired Sonarr config.xml at ${configXmlPath}`);
         }
         return;
@@ -150,7 +174,7 @@ export class BootstrapService {
           appSettings.set('sonarr_url', 'http://sonarr:8989');
         }
         const xml = sanitizeArrConfigXml('', key, 8989);
-        fs.writeFileSync(configXmlPath, xml, 'utf8');
+        this.writeConfigFile(configXmlPath, xml);
         console.log(`[Bootstrap] Pre-seeded Sonarr config.xml with zero-touch API key at ${configXmlPath}`);
       }
     } catch (err: any) {
@@ -161,6 +185,7 @@ export class BootstrapService {
   public syncSabnzbdApiKey(): string | null {
     try {
       const iniPath = path.join(this.sabnzbdConfigDir, 'sabnzbd.ini');
+      this.ensureFilePermissions(iniPath);
       if (fs.existsSync(iniPath)) {
         const content = fs.readFileSync(iniPath, 'utf8');
         const match = content.match(/^api_key\s*=\s*["']?([a-zA-Z0-9_-]+)["']?/mi);
@@ -186,6 +211,7 @@ export class BootstrapService {
     try {
       const configDir = target === 'radarr' ? this.radarrConfigDir : this.sonarrConfigDir;
       const configXmlPath = path.join(configDir, 'config.xml');
+      this.ensureFilePermissions(configXmlPath);
       if (fs.existsSync(configXmlPath)) {
         const content = fs.readFileSync(configXmlPath, 'utf8');
         const match = content.match(/<ApiKey>([^<]+)<\/ApiKey>/i);
@@ -229,7 +255,7 @@ export class BootstrapService {
         }
 
         if (updated) {
-          fs.writeFileSync(iniPath, content, 'utf8');
+          this.writeConfigFile(iniPath, content);
           console.log('[Bootstrap] Automatically added container hostnames to SABnzbd host_whitelist in sabnzbd.ini');
         }
         return;
@@ -277,7 +303,7 @@ priority = 0
           console.log('[Bootstrap] Pre-configured SABnzbd with Easynews NNTP (SSL port 563)');
         }
 
-        fs.writeFileSync(iniPath, iniContent, 'utf8');
+        this.writeConfigFile(iniPath, iniContent);
         console.log(`[Bootstrap] Pre-seeded SABnzbd configuration with API key at ${iniPath}`);
       }
     } catch (err: any) {
@@ -763,7 +789,13 @@ priority = 0
 
   private tryCreateDir(dir: string): boolean {
     try {
-      fs.mkdirSync(dir, { recursive: true });
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      try {
+        fs.chmodSync(dir, 0o777);
+        fs.chownSync(dir, 1000, 1000);
+      } catch (_) {}
       return true;
     } catch (_) {
       return false;
