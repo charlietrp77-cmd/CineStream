@@ -119,5 +119,20 @@ export async function streamRoutes(fastify: FastifyInstance, _opts: FastifyPlugi
 
     return reply.send({ success: true });
   });
+
+  // Direct .m3u playlist download for external players (VLC, PotPlayer, MPV)
+  fastify.get('/api/streams/playlist.m3u', async (req: FastifyRequest, reply: FastifyReply) => {
+    const query = req.query as { url?: string; title?: string };
+    if (!query.url) {
+      return reply.status(400).send({ error: 'url query parameter is required' });
+    }
+    const cleanTitle = query.title ? query.title.replace(/[\r\n]/g, '') : 'CineStream Media';
+    const m3u = `#EXTM3U\n#EXTINF:-1,${cleanTitle}\n${query.url}\n`;
+    const safeFilename = `${cleanTitle.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'stream'}.m3u`;
+
+    reply.header('Content-Type', 'audio/x-mpegurl; charset=utf-8');
+    reply.header('Content-Disposition', `attachment; filename="${safeFilename}"`);
+    return reply.send(m3u);
+  });
 }
 

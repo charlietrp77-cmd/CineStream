@@ -134,73 +134,79 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
     }
   };
 
+  const launchVlcProtocol = () => {
+    const vlcUrl = `vlc://${absoluteStreamUrl}`;
+    try {
+      window.location.href = vlcUrl;
+    } catch (_) {
+      const a = document.createElement('a');
+      a.href = vlcUrl;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  };
+
   const downloadVlcM3u = () => {
-    const m3uContent = `#EXTM3U\n#EXTINF:-1,${title}${episodeTitle ? ` - ${episodeTitle}` : ''}\n${absoluteStreamUrl}\n`;
-    const blob = new Blob([m3uContent], { type: 'audio/x-mpegurl' });
-    const url = URL.createObjectURL(blob);
+    const safeTitle = `${title}${episodeTitle ? ` - ${episodeTitle}` : ''}`;
+    const m3uUrl = `/api/streams/playlist.m3u?url=${encodeURIComponent(absoluteStreamUrl)}&title=${encodeURIComponent(safeTitle)}`;
     const a = document.createElement('a');
-    a.href = url;
+    a.href = m3uUrl;
     const safeFilename = `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}.m3u`;
     a.download = safeFilename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setPlayerMode('vlc_active');
   };
 
   const openInVlc = () => {
-    downloadVlcM3u();
+    launchVlcProtocol();
+    setPlayerMode('vlc_active');
   };
+
+  const [detectCountdown, setDetectCountdown] = useState(8);
 
   // PC: Auto-attempt launching VLC media player via custom protocol
   useEffect(() => {
     if (playerMode !== 'vlc_detecting') return;
 
-    // Dispatch vlc:// protocol attempt via hidden iframe
-    const vlcUrl = `vlc://${absoluteStreamUrl}`;
-    let iframe: HTMLIFrameElement | null = null;
-    try {
-      iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = vlcUrl;
-      document.body.appendChild(iframe);
-    } catch (e) {
-      console.warn('Failed to dispatch vlc:// protocol iframe:', e);
-    }
+    // Dispatch vlc:// protocol attempt directly
+    launchVlcProtocol();
 
     let detected = false;
-    // If window blurs or document visibility changes within 1800ms, VLC protocol was handled
-    const fallbackTimer = setTimeout(() => {
-      if (!detected) {
-        // VLC is not installed or declined -> seamlessly switch to web player
-        setPlayerMode('web_player');
-      }
-    }, 1800);
-
     const onAppBlur = () => {
       detected = true;
-      clearTimeout(fallbackTimer);
       setPlayerMode('vlc_active');
     };
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         detected = true;
-        clearTimeout(fallbackTimer);
         setPlayerMode('vlc_active');
       }
     };
 
-    window.addEventListener('blur', onAppBlur, { once: true });
-    document.addEventListener('visibilitychange', onVisibilityChange, { once: true });
+    window.addEventListener('blur', onAppBlur);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    const countdownTimer = setInterval(() => {
+      setDetectCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownTimer);
+          if (!detected) {
+            setPlayerMode('web_player');
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
     return () => {
-      clearTimeout(fallbackTimer);
+      clearInterval(countdownTimer);
       window.removeEventListener('blur', onAppBlur);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      if (iframe && iframe.parentNode) {
-        iframe.parentNode.removeChild(iframe);
-      }
     };
   }, [playerMode, absoluteStreamUrl]);
 
@@ -456,19 +462,44 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
           <div className="space-y-1.5">
             <h3 className="text-xl font-bold text-white tracking-wide">Launching VLC Media Player</h3>
             <p className="text-xs text-gray-300">
-              Connecting to VLC on your PC. If VLC is not installed, CineStream will switch to the built-in web player in a moment...
+              Opening stream in VLC on your PC. If prompted by your browser, please click <strong className="text-white">Open VLC</strong>.
             </p>
           </div>
 
-          <div className="flex items-center justify-center gap-2 py-2">
+          <div className="flex items-center justify-center gap-2 py-1">
             <RefreshCw className="w-4 h-4 text-orange-400 animate-spin" />
-            <span className="text-xs font-medium text-orange-300">Waiting for VLC...</span>
+            <span className="text-xs font-medium text-orange-300">
+              {detectCountdown > 0
+                ? `Waiting for VLC (${detectCountdown}s)...`
+                : 'Switching to web player...'}
+            </span>
           </div>
 
           <div className="flex flex-col gap-2 pt-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={openInVlc}
+                tabIndex={0}
+                className="py-2.5 px-3 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow transition-all flex items-center justify-center gap-1.5 focus:ring-2 focus:ring-orange-400 focus:outline-none"
+              >
+                <Monitor className="w-4 h-4" />
+                Launch VLC
+              </button>
+              <button
+                onClick={downloadVlcM3u}
+                tabIndex={0}
+                className="py-2.5 px-3 bg-white/15 hover:bg-white/25 active:scale-95 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 focus:ring-2 focus:ring-white/40 focus:outline-none"
+                title="Download .m3u playlist file which opens directly in VLC"
+              >
+                <Download className="w-4 h-4" />
+                Open .m3u
+              </button>
+            </div>
+
             <button
               onClick={() => setPlayerMode('web_player')}
-              className="w-full py-2.5 px-4 bg-white/15 hover:bg-white/25 active:scale-95 text-white font-semibold text-xs rounded-xl transition-all"
+              tabIndex={0}
+              className="w-full py-2.5 px-4 bg-white/10 hover:bg-white/20 active:scale-95 text-white font-semibold text-xs rounded-xl transition-all focus:ring-2 focus:ring-white/40 focus:outline-none"
             >
               Play in Web Player Now
             </button>
@@ -479,7 +510,7 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
                 } catch (_) {}
                 setPlayerMode('web_player');
               }}
-              className="w-full py-2 px-3 text-[11px] text-gray-400 hover:text-white transition-colors"
+              className="w-full py-1.5 px-3 text-[11px] text-gray-400 hover:text-white transition-colors"
             >
               Always use Web Player on this PC
             </button>
@@ -487,7 +518,8 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
 
           <button
             onClick={handleClose}
-            className="text-xs text-gray-500 hover:text-gray-300 pt-2 block mx-auto underline"
+            tabIndex={0}
+            className="text-xs text-gray-500 hover:text-gray-300 pt-1 block mx-auto underline focus:outline-none focus:text-white"
           >
             Cancel & Return to CineStream
           </button>
