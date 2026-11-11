@@ -127,6 +127,22 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
       videoMode,
     });
 
+    if (this.currentOptions?.title) {
+      params.set('title', this.currentOptions.title);
+      const lower = this.currentOptions.title.toLowerCase();
+      if (
+        lower.includes('hevc') ||
+        lower.includes('h265') ||
+        lower.includes('x265') ||
+        lower.includes('2160p') ||
+        lower.includes('4k') ||
+        lower.includes('uhd') ||
+        lower.includes('hdr')
+      ) {
+        params.set('isHevc', '1');
+      }
+    }
+
     // Extract headers from proxy URL if present, or from PlayOptions
     const headersParam = this.extractProxyHeaders(sourceUrl);
     if (headersParam) {

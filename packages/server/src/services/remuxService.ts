@@ -43,6 +43,10 @@ export interface RemuxOptions {
   resolvedUpstreamUrl?: string;
   /** Custom headers for upstream (e.g. auth) */
   upstreamHeaders?: Record<string, string>;
+  /** Explicit hint if source is HEVC/H.265 */
+  isHevc?: boolean;
+  /** Optional title or release name for codec heuristics */
+  title?: string;
 }
 
 /** Resolved source details after decoding proxy URLs, NAS IDs, etc. */
@@ -390,25 +394,48 @@ export class RemuxService {
   }
 
   /**
-   * Determines whether a codec string indicates HEVC/H.265 video.
-   * Uses ffprobe data when available, falls back to filename heuristics.
+   * Determines whether a video stream is HEVC/H.265.
+   * Checks codec name, explicit flag, decoded URL, and release title.
+   * In Chromium, HEVC MUST be tagged with 'hvc1' or the screen is pitch black.
    */
-  private isHevcCodec(codec?: string, sourceUrl?: string): boolean {
+  public isHevcCodec(codec?: string, sourceUrl?: string, title?: string, explicitIsHevc?: boolean): boolean {
+    if (explicitIsHevc === true) return true;
+    if (explicitIsHevc === false) return false;
+
     if (codec) {
       const c = codec.toLowerCase();
-      return c === 'hevc' || c === 'h265' || c === 'hev1' || c === 'hvc1';
+      if (c === 'hevc' || c === 'h265' || c === 'hev1' || c === 'hvc1') return true;
+      if (c === 'h264' || c === 'avc1' || c === 'avc') return false;
     }
-    if (sourceUrl) {
-      const lower = sourceUrl.toLowerCase();
-      return (
-        lower.includes('hevc') ||
-        lower.includes('h265') ||
-        lower.includes('x265') ||
-        lower.includes('2160p') ||
-        lower.includes('4k')
-      );
+
+    let combined = (sourceUrl || '') + ' ' + (title || '');
+
+    // Extract and decode base64url if sourceUrl is a proxy stream URL
+    const proxyMatch = sourceUrl ? sourceUrl.match(/\/proxy\/stream\?url=([^&]+)/) : null;
+    if (proxyMatch) {
+      try {
+        combined += ' ' + Buffer.from(proxyMatch[1], 'base64url').toString('utf-8');
+      } catch (_) {}
     }
-    return false;
+
+    try {
+      combined = decodeURIComponent(combined);
+    } catch (_) {}
+
+    const lower = combined.toLowerCase();
+    return (
+      lower.includes('hevc') ||
+      lower.includes('h265') ||
+      lower.includes('h.265') ||
+      lower.includes('x265') ||
+      lower.includes('x.265') ||
+      lower.includes('2160p') ||
+      lower.includes('4k') ||
+      lower.includes('uhd') ||
+      lower.includes('hdr') ||
+      lower.includes('dovi') ||
+      lower.includes('dv')
+    );
   }
 
   /**
@@ -472,9 +499,11 @@ export class RemuxService {
     }
 
     // Video Track Processing:
-    // Determine codec from probe or heuristics
+    // Determine codec from probe, explicit options, decoded URL, or title
     const videoCodec = options.probeResult?.video?.codec;
-    const isHevc = this.isHevcCodec(videoCodec, options.source);
+    const isHevc = this.isHevcCodec(videoCodec, options.inputUrl || options.source, options.title, options.isHevc);
+
+    console.log(`[RemuxService] Video remux mode=${options.videoMode || 'copy'} isHevc=${isHevc} (tag=${isHevc ? 'hvc1' : 'default'})`);
 
     if (options.videoMode === 'transcode') {
       args.push(
@@ -628,7 +657,10 @@ export class RemuxService {
     // Step 3: Build FFmpeg args for piped input
     const args = this.buildFFmpegArgs({
       ...options,
+      source: targetUrl || resolved.inputUrl || options.source,
       piped: true,
+      inputUrl: targetUrl || resolved.inputUrl,
+      inputHeaders: effectiveHeaders,
     });
 
     console.log(`[RemuxService] FFmpeg piped: ${this.ffmpegBin} ${args.join(' ').substring(0, 300)}...`);

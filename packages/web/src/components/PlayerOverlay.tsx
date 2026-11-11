@@ -677,7 +677,7 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
 
             <button
               onClick={toggleVideoMode}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-all border active:scale-95"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-all border active:scale-95"
               style={{
                 backgroundColor: videoMode === 'copy' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(234, 88, 12, 0.2)',
                 borderColor: videoMode === 'copy' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(234, 88, 12, 0.4)',

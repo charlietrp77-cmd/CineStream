@@ -49,6 +49,8 @@ export async function remuxRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
       audioCopy?: string;
       videoMode?: string;
       headers?: string;
+      isHevc?: string;
+      title?: string;
     };
 
     if (!query.url) {
@@ -59,6 +61,8 @@ export async function remuxRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
     const audioTrackIndex = query.audioTrack !== undefined ? parseInt(query.audioTrack, 10) : 0;
     const audioMode = query.audioCopy === 'true' || query.audioCopy === '1' ? 'copy' : 'auto';
     const videoMode = query.videoMode === 'transcode' ? 'transcode' : 'copy';
+    const isHevc = query.isHevc === '1' || query.isHevc === 'true' ? true : undefined;
+    const title = query.title;
 
     // Decode custom headers if provided (base64url-encoded JSON, same format as proxy)
     let upstreamHeaders: Record<string, string> | undefined;
@@ -69,7 +73,7 @@ export async function remuxRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
       } catch (_) {}
     }
 
-    console.log(`[RemuxRoute] Stream request: url=${query.url.substring(0, 80)}... start=${startTime} video=${videoMode} audio=${audioMode}`);
+    console.log(`[RemuxRoute] Stream request: url=${query.url.substring(0, 80)}... start=${startTime} video=${videoMode} audio=${audioMode} isHevc=${isHevc}`);
 
     try {
       const { stdout, kill } = await remuxService.createPipedRemuxStream({
@@ -79,6 +83,8 @@ export async function remuxRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
         audioMode,
         videoMode,
         upstreamHeaders,
+        isHevc,
+        title,
       });
 
       // Cleanup FFmpeg process as soon as client closes connection or navigates away
