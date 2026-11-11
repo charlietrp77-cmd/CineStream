@@ -5,6 +5,43 @@ import { fetch as undiciFetch } from 'undici';
 import { config } from '../config';
 import { appSettings } from './appSettings';
 
+export function sanitizeArrConfigXml(rawContent: string, defaultKey: string, port: number): string {
+  const content = (rawContent || '').trim();
+
+  // Extract ApiKey
+  const keyMatch = content.match(/<ApiKey>([^<]+)<\/ApiKey>/i);
+  const apiKey = keyMatch ? keyMatch[1].trim() : defaultKey;
+
+  // Extract Port
+  const portMatch = content.match(/<Port>([^<]+)<\/Port>/i);
+  const currentPort = portMatch ? portMatch[1].trim() : String(port);
+
+  // Extract UrlBase
+  const urlBaseMatch = content.match(/<UrlBase>([^<]*)<\/UrlBase>/i);
+  const urlBase = urlBaseMatch ? urlBaseMatch[1].trim() : '';
+
+  // Extract BindAddress
+  const bindMatch = content.match(/<BindAddress>([^<]+)<\/BindAddress>/i);
+  const bindAddress = bindMatch ? bindMatch[1].trim() : '*';
+
+  // Extract LogLevel
+  const logMatch = content.match(/<LogLevel>([^<]+)<\/LogLevel>/i);
+  const logLevel = logMatch ? logMatch[1].trim() : 'info';
+
+  // Construct guaranteed clean, non-duplicated valid XML
+  return `<Config>
+  <LogLevel>${logLevel}</LogLevel>
+  <UrlBase>${urlBase}</UrlBase>
+  <UpdateMechanism>BuiltIn</UpdateMechanism>
+  <BindAddress>${bindAddress}</BindAddress>
+  <Port>${currentPort}</Port>
+  <ApiKey>${apiKey}</ApiKey>
+  <AuthenticationMethod>External</AuthenticationMethod>
+  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
+</Config>
+`;
+}
+
 export class BootstrapService {
   private radarrConfigDir = process.env.RADARR_CONFIG_DIR || '/arr_configs/radarr';
   private sonarrConfigDir = process.env.SONARR_CONFIG_DIR || '/arr_configs/sonarr';
@@ -38,52 +75,36 @@ export class BootstrapService {
   private bootstrapRadarr(): void {
     try {
       const configXmlPath = path.join(this.radarrConfigDir, 'config.xml');
-      if (fs.existsSync(configXmlPath)) {
-        let content = fs.readFileSync(configXmlPath, 'utf8');
-        const match = content.match(/<ApiKey>([^<]+)<\/ApiKey>/i);
-        if (match && match[1]) {
-          const key = match[1].trim();
-          appSettings.set('radarr_api_key', key);
-          if (!appSettings.get('radarr_url')) {
-            appSettings.set('radarr_url', 'http://radarr:7878');
-          }
-          console.log(`[Bootstrap] Discovered existing Radarr API key from ${configXmlPath}`);
-
-          // Prevent Radarr v4/v5 mandatory auth modal on LAN/Docker bridge
-          if (content.includes('<AuthenticationMethod>None</AuthenticationMethod>')) {
-            content = content.replace(
-              /<AuthenticationMethod>None<\/AuthenticationMethod>/i,
-              '<AuthenticationMethod>External</AuthenticationMethod>\n  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>'
-            );
-            fs.writeFileSync(configXmlPath, content, 'utf8');
-            console.log(`[Bootstrap] Updated Radarr auth to External/DisabledForLocalAddresses at ${configXmlPath}`);
-          }
-          return;
-        }
+      let key = appSettings.get('radarr_api_key');
+      if (!key) {
+        key = 'cs_arr_' + crypto.randomBytes(12).toString('hex');
       }
 
-      // If directory is mountable, pre-seed config.xml
-      if (fs.existsSync(this.radarrConfigDir) || this.tryCreateDir(this.radarrConfigDir)) {
-        let key = appSettings.get('radarr_api_key');
-        if (!key) {
-          key = 'cs_arr_' + crypto.randomBytes(12).toString('hex');
-          appSettings.set('radarr_api_key', key);
+      if (fs.existsSync(configXmlPath)) {
+        const rawContent = fs.readFileSync(configXmlPath, 'utf8');
+        const sanitized = sanitizeArrConfigXml(rawContent, key, 7878);
+        const match = sanitized.match(/<ApiKey>([^<]+)<\/ApiKey>/i);
+        if (match && match[1]) {
+          key = match[1].trim();
         }
+        appSettings.set('radarr_api_key', key);
         if (!appSettings.get('radarr_url')) {
           appSettings.set('radarr_url', 'http://radarr:7878');
         }
 
-        const xml = `<Config>
-  <LogLevel>info</LogLevel>
-  <UrlBase></UrlBase>
-  <UpdateMechanism>BuiltIn</UpdateMechanism>
-  <BindAddress>*</BindAddress>
-  <Port>7878</Port>
-  <ApiKey>${key}</ApiKey>
-  <AuthenticationMethod>External</AuthenticationMethod>
-  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
-</Config>
-`;
+        if (rawContent.trim() !== sanitized.trim()) {
+          fs.writeFileSync(configXmlPath, sanitized, 'utf8');
+          console.log(`[Bootstrap] Sanitized & repaired Radarr config.xml at ${configXmlPath}`);
+        }
+        return;
+      }
+
+      if (fs.existsSync(this.radarrConfigDir) || this.tryCreateDir(this.radarrConfigDir)) {
+        appSettings.set('radarr_api_key', key);
+        if (!appSettings.get('radarr_url')) {
+          appSettings.set('radarr_url', 'http://radarr:7878');
+        }
+        const xml = sanitizeArrConfigXml('', key, 7878);
         fs.writeFileSync(configXmlPath, xml, 'utf8');
         console.log(`[Bootstrap] Pre-seeded Radarr config.xml with zero-touch API key at ${configXmlPath}`);
       }
@@ -95,52 +116,36 @@ export class BootstrapService {
   private bootstrapSonarr(): void {
     try {
       const configXmlPath = path.join(this.sonarrConfigDir, 'config.xml');
-      if (fs.existsSync(configXmlPath)) {
-        let content = fs.readFileSync(configXmlPath, 'utf8');
-        const match = content.match(/<ApiKey>([^<]+)<\/ApiKey>/i);
-        if (match && match[1]) {
-          const key = match[1].trim();
-          appSettings.set('sonarr_api_key', key);
-          if (!appSettings.get('sonarr_url')) {
-            appSettings.set('sonarr_url', 'http://sonarr:8989');
-          }
-          console.log(`[Bootstrap] Discovered existing Sonarr API key from ${configXmlPath}`);
-
-          // Prevent Sonarr v4 mandatory auth modal on LAN/Docker bridge
-          if (content.includes('<AuthenticationMethod>None</AuthenticationMethod>')) {
-            content = content.replace(
-              /<AuthenticationMethod>None<\/AuthenticationMethod>/i,
-              '<AuthenticationMethod>External</AuthenticationMethod>\n  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>'
-            );
-            fs.writeFileSync(configXmlPath, content, 'utf8');
-            console.log(`[Bootstrap] Updated Sonarr auth to External/DisabledForLocalAddresses at ${configXmlPath}`);
-          }
-          return;
-        }
+      let key = appSettings.get('sonarr_api_key');
+      if (!key) {
+        key = 'cs_arr_' + crypto.randomBytes(12).toString('hex');
       }
 
-      // If directory is mountable, pre-seed config.xml
-      if (fs.existsSync(this.sonarrConfigDir) || this.tryCreateDir(this.sonarrConfigDir)) {
-        let key = appSettings.get('sonarr_api_key');
-        if (!key) {
-          key = 'cs_arr_' + crypto.randomBytes(12).toString('hex');
-          appSettings.set('sonarr_api_key', key);
+      if (fs.existsSync(configXmlPath)) {
+        const rawContent = fs.readFileSync(configXmlPath, 'utf8');
+        const sanitized = sanitizeArrConfigXml(rawContent, key, 8989);
+        const match = sanitized.match(/<ApiKey>([^<]+)<\/ApiKey>/i);
+        if (match && match[1]) {
+          key = match[1].trim();
         }
+        appSettings.set('sonarr_api_key', key);
         if (!appSettings.get('sonarr_url')) {
           appSettings.set('sonarr_url', 'http://sonarr:8989');
         }
 
-        const xml = `<Config>
-  <LogLevel>info</LogLevel>
-  <UrlBase></UrlBase>
-  <UpdateMechanism>BuiltIn</UpdateMechanism>
-  <BindAddress>*</BindAddress>
-  <Port>8989</Port>
-  <ApiKey>${key}</ApiKey>
-  <AuthenticationMethod>External</AuthenticationMethod>
-  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
-</Config>
-`;
+        if (rawContent.trim() !== sanitized.trim()) {
+          fs.writeFileSync(configXmlPath, sanitized, 'utf8');
+          console.log(`[Bootstrap] Sanitized & repaired Sonarr config.xml at ${configXmlPath}`);
+        }
+        return;
+      }
+
+      if (fs.existsSync(this.sonarrConfigDir) || this.tryCreateDir(this.sonarrConfigDir)) {
+        appSettings.set('sonarr_api_key', key);
+        if (!appSettings.get('sonarr_url')) {
+          appSettings.set('sonarr_url', 'http://sonarr:8989');
+        }
+        const xml = sanitizeArrConfigXml('', key, 8989);
         fs.writeFileSync(configXmlPath, xml, 'utf8');
         console.log(`[Bootstrap] Pre-seeded Sonarr config.xml with zero-touch API key at ${configXmlPath}`);
       }
