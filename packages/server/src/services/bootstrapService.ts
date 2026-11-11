@@ -445,13 +445,16 @@ priority = 0
     }
   }
 
-  private ensureNasFolders(): void {
+  public ensureNasFolders(): void {
     try {
       const nasRoot = config.nasCachePath;
       const folders = [
         path.join(nasRoot, 'movies'),
         path.join(nasRoot, 'tv'),
+        path.join(nasRoot, 'downloads'),
         path.join(nasRoot, 'downloads', 'complete'),
+        path.join(nasRoot, 'downloads', 'complete', 'movies'),
+        path.join(nasRoot, 'downloads', 'complete', 'tv'),
         path.join(nasRoot, 'downloads', 'incomplete'),
       ];
 
@@ -459,6 +462,10 @@ priority = 0
         if (!fs.existsSync(f)) {
           fs.mkdirSync(f, { recursive: true });
         }
+        try {
+          fs.chmodSync(f, 0o777);
+          try { fs.chownSync(f, 1000, 1000); } catch (_) {}
+        } catch (_) {}
       }
       console.log(`[Bootstrap] Verified NAS media directories at ${nasRoot}`);
     } catch (err: any) {
