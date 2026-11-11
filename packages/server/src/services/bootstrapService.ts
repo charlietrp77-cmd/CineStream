@@ -468,19 +468,24 @@ priority = 0
     await this.registerNewznabIndexers('sonarr', 'http://sonarr:8989', apiKey, [5000, 5020, 5030, 5040, 5045]);
   }
 
-  private async registerNewznabIndexers(
+  public async registerNewznabIndexers(
     target: 'radarr' | 'sonarr',
     serviceUrl: string,
     apiKey: string,
     categories: number[]
-  ): Promise<void> {
+  ): Promise<{ registered: string[]; skipped: string[]; errors: string[] }> {
+    const result = { registered: [] as string[], skipped: [] as string[], errors: [] as string[] };
+    const althubKey = config.althubApiKey || appSettings.get('althub_api_key');
+    const nzbgeekKey = config.nzbgeekApiKey || appSettings.get('nzbgeek_api_key');
+    const drunkenslugKey = config.drunkenslugApiKey || appSettings.get('drunkenslug_api_key');
+
     const indexersToRegister = [
-      { name: 'altHUB', baseUrl: 'https://api.althub.co.za', key: config.althubApiKey },
-      { name: 'NZBGeek', baseUrl: 'https://api.nzbgeek.info', key: config.nzbgeekApiKey },
-      { name: 'DrunkenSlug', baseUrl: 'https://api.drunkenslug.com', key: config.drunkenslugApiKey },
+      { name: 'altHUB', baseUrl: 'https://api.althub.co.za', key: althubKey },
+      { name: 'NZBGeek', baseUrl: 'https://api.nzbgeek.info', key: nzbgeekKey },
+      { name: 'DrunkenSlug', baseUrl: 'https://api.drunkenslug.com', key: drunkenslugKey },
     ].filter((i) => Boolean(i.key));
 
-    if (indexersToRegister.length === 0) return;
+    if (indexersToRegister.length === 0) return result;
 
     const headers = {
       'X-Api-Key': apiKey,
@@ -489,52 +494,114 @@ priority = 0
 
     try {
       const idxRes = await undiciFetch(`${serviceUrl}/api/v3/indexer`, { headers });
-      if (!idxRes.ok) return;
+      if (!idxRes.ok) {
+        console.warn(`[Bootstrap] Unable to fetch ${target} indexers: HTTP ${idxRes.status}`);
+        return result;
+      }
       const existing: any = await idxRes.json();
       const existingList = Array.isArray(existing) ? existing : [];
+
+      // Query Newznab schema from target to mirror exact field formats
+      let newznabSchema: any = null;
+      try {
+        const schemaRes = await undiciFetch(`${serviceUrl}/api/v3/indexer/schema`, { headers });
+        if (schemaRes.ok) {
+          const schemas: any = await schemaRes.json();
+          if (Array.isArray(schemas)) {
+            newznabSchema = schemas.find(
+              (s: any) =>
+                s.implementation?.toLowerCase() === 'newznab' ||
+                s.configContract?.toLowerCase() === 'newznabsettings'
+            );
+          }
+        }
+      } catch (_) {}
 
       for (const idx of indexersToRegister) {
         const hostname = new URL(idx.baseUrl).hostname.toLowerCase();
         const alreadyRegistered = existingList.some(
           (e: any) =>
             e.name?.toLowerCase().includes(idx.name.toLowerCase()) ||
-            e.fields?.some((f: any) => f.name === 'base_url' && f.value?.toLowerCase().includes(hostname))
+            e.fields?.some(
+              (f: any) =>
+                (f.name === 'url' || f.name === 'baseUrl' || f.name === 'base_url') &&
+                String(f.value || '').toLowerCase().includes(hostname)
+            )
         );
-        if (!alreadyRegistered) {
-          const res = await undiciFetch(`${serviceUrl}/api/v3/indexer`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              enableRss: true,
-              enableAutomaticSearch: true,
-              enableInteractiveSearch: true,
-              supportsRss: true,
-              supportsSearch: true,
-              protocol: 'usenet',
-              name: idx.name,
-              fields: [
-                { name: 'base_url', value: idx.baseUrl },
-                { name: 'api_path', value: '/api' },
-                { name: 'apikey', value: idx.key },
-                { name: 'categories', value: categories },
-                { name: 'additionalParameters', value: '' },
-              ],
-              implementation: 'Newznab',
-              configContract: 'NewznabSettings',
-              priority: 25,
-            }),
+
+        if (alreadyRegistered) {
+          result.skipped.push(idx.name);
+          continue;
+        }
+
+        // Standard Newznab fields expected by Sonarr/Radarr (url, apiPath, apiKey, categories)
+        let fields: Array<{ name: string; value: any }> = [];
+        if (newznabSchema && Array.isArray(newznabSchema.fields)) {
+          fields = newznabSchema.fields.map((f: any) => {
+            const fieldName = f.name;
+            if (fieldName === 'url' || fieldName === 'baseUrl' || fieldName === 'base_url') {
+              return { ...f, value: idx.baseUrl };
+            }
+            if (fieldName === 'apiPath' || fieldName === 'api_path') {
+              return { ...f, value: '/api' };
+            }
+            if (fieldName === 'apiKey' || fieldName === 'apikey') {
+              return { ...f, value: idx.key };
+            }
+            if (fieldName === 'categories') {
+              return { ...f, value: categories };
+            }
+            if (fieldName === 'additionalParameters') {
+              return { ...f, value: '' };
+            }
+            return f;
           });
-          if (res.ok) {
-            console.log(`✅ [Bootstrap] Registered ${idx.name} as Newznab indexer in ${target === 'radarr' ? 'Radarr' : 'Sonarr'}!`);
-          } else {
-            const errText = await res.text().catch(() => '');
-            console.warn(`[Bootstrap] Failed to register ${idx.name} in ${target}: HTTP ${res.status} ${errText}`);
-          }
+        } else {
+          fields = [
+            { name: 'url', value: idx.baseUrl },
+            { name: 'apiPath', value: '/api' },
+            { name: 'apiKey', value: idx.key },
+            { name: 'categories', value: categories },
+            { name: 'additionalParameters', value: '' },
+          ];
+        }
+
+        const payload: any = {
+          ...(newznabSchema || {}),
+          name: idx.name,
+          enableRss: true,
+          enableAutomaticSearch: true,
+          enableInteractiveSearch: true,
+          supportsRss: true,
+          supportsSearch: true,
+          protocol: 'usenet',
+          priority: 25,
+          implementation: 'Newznab',
+          configContract: 'NewznabSettings',
+          fields,
+        };
+        delete payload.id;
+
+        const res = await undiciFetch(`${serviceUrl}/api/v3/indexer`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+        });
+
+        if (res.ok) {
+          result.registered.push(idx.name);
+          console.log(`✅ [Bootstrap] Registered ${idx.name} as Newznab indexer in ${target === 'radarr' ? 'Radarr' : 'Sonarr'}!`);
+        } else {
+          const errText = await res.text().catch(() => '');
+          result.errors.push(`${idx.name}: HTTP ${res.status} ${errText}`);
+          console.warn(`[Bootstrap] Failed to register ${idx.name} in ${target}: HTTP ${res.status} ${errText}`);
         }
       }
     } catch (err: any) {
       console.warn(`[Bootstrap] Newznab indexer registration in ${target} error:`, err.message);
     }
+
+    return result;
   }
 
   private tryCreateDir(dir: string): boolean {

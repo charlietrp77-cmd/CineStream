@@ -2,6 +2,7 @@ import { fetch as undiciFetch } from 'undici';
 import path from 'path';
 import { appSettings } from './appSettings';
 import { StreamBadges } from './aiostreams';
+import { bootstrapService } from './bootstrapService';
 
 export interface ArrStatus {
   radarr: {
@@ -115,6 +116,9 @@ export class ArrService {
           const json: any = await res.json();
           status.radarr.online = true;
           status.radarr.version = json.version;
+
+          // Auto-sync missing Newznab indexers (altHUB, NZBGeek, DrunkenSlug)
+          bootstrapService.registerNewznabIndexers('radarr', radarr.url, radarr.key, [2000, 2030, 2040, 2045, 2060]).catch(() => {});
         } else {
           status.radarr.error = `HTTP ${res.status}`;
         }
@@ -133,6 +137,9 @@ export class ArrService {
           const json: any = await res.json();
           status.sonarr.online = true;
           status.sonarr.version = json.version;
+
+          // Auto-sync missing Newznab indexers (altHUB, NZBGeek, DrunkenSlug)
+          bootstrapService.registerNewznabIndexers('sonarr', sonarr.url, sonarr.key, [5000, 5020, 5030, 5040, 5045]).catch(() => {});
         } else {
           status.sonarr.error = `HTTP ${res.status}`;
         }

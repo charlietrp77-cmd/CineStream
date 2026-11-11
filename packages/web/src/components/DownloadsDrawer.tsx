@@ -54,6 +54,8 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
   });
   const [arrSaving, setArrSaving] = useState(false);
   const [arrSaveMessage, setArrSaveMessage] = useState<string | null>(null);
+  const [syncingIndexers, setSyncingIndexers] = useState(false);
+  const [syncIndexersMessage, setSyncIndexersMessage] = useState<string | null>(null);
 
   const { activeProfile } = useProfileStore();
   const { offlineItems, removeItem: removeOfflineItem, saveItem } = useOfflineStore();
@@ -140,6 +142,25 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
       setArrSaveMessage(`Error: ${err.message}`);
     } finally {
       setArrSaving(false);
+    }
+  };
+
+  const handleSyncIndexers = async () => {
+    setSyncingIndexers(true);
+    setSyncIndexersMessage(null);
+    try {
+      const res = await fetch('/api/arr/sync-indexers', { method: 'POST' });
+      if (res.ok) {
+        setSyncIndexersMessage('Newznab indexers synced into Radarr & Sonarr!');
+        await fetchArrStatus();
+      } else {
+        setSyncIndexersMessage('Indexer sync failed.');
+      }
+    } catch (_) {
+      setSyncIndexersMessage('Sync connection error.');
+    } finally {
+      setSyncingIndexers(false);
+      setTimeout(() => setSyncIndexersMessage(null), 3000);
     }
   };
 
@@ -383,14 +404,31 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                     <Radar className="w-3.5 h-3.5 text-cyan-400" />
                     Radarr & Sonarr Indexer Search (±10% Size Match)
                   </span>
-                  <button
-                    onClick={() => setShowArrSettings(!showArrSettings)}
-                    className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-colors"
-                  >
-                    <Settings className="w-3 h-3" />
-                    <span>{showArrSettings ? 'Close' : 'Configure'}</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSyncIndexers}
+                      disabled={syncingIndexers}
+                      title="Sync AltHub, NZBGeek, and DrunkenSlug indexers into Sonarr & Radarr"
+                      className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 px-2 py-0.5 rounded bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${syncingIndexers ? 'animate-spin' : ''}`} />
+                      <span>{syncingIndexers ? 'Syncing...' : 'Sync Indexers'}</span>
+                    </button>
+                    <button
+                      onClick={() => setShowArrSettings(!showArrSettings)}
+                      className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-colors"
+                    >
+                      <Settings className="w-3 h-3" />
+                      <span>{showArrSettings ? 'Close' : 'Configure'}</span>
+                    </button>
+                  </div>
                 </div>
+
+                {syncIndexersMessage && (
+                  <p className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-md">
+                    {syncIndexersMessage}
+                  </p>
+                )}
 
                 {/* Status Badges with Clickable IP URLs */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">

@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } f
 import { arrService } from '../services/arrService';
 import { appSettings } from '../services/appSettings';
 import { StreamBadges } from '../services/aiostreams';
+import { bootstrapService } from '../services/bootstrapService';
 
 export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions) {
   // Check Radarr & Sonarr status
@@ -39,6 +40,24 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
     const updated = appSettings.getAll();
     const status = await arrService.getStatus();
     return reply.send({ settings: updated, status });
+  });
+
+  // Force sync configured Newznab indexers into Radarr & Sonarr
+  fastify.post('/api/arr/sync-indexers', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const radarrUrl = appSettings.get('radarr_url') || 'http://radarr:7878';
+    const radarrKey = appSettings.get('radarr_api_key');
+    const sonarrUrl = appSettings.get('sonarr_url') || 'http://sonarr:8989';
+    const sonarrKey = appSettings.get('sonarr_api_key');
+
+    const results: any = {};
+    if (radarrKey) {
+      results.radarr = await bootstrapService.registerNewznabIndexers('radarr', radarrUrl, radarrKey, [2000, 2030, 2040, 2045, 2060]);
+    }
+    if (sonarrKey) {
+      results.sonarr = await bootstrapService.registerNewznabIndexers('sonarr', sonarrUrl, sonarrKey, [5000, 5020, 5030, 5040, 5045]);
+    }
+
+    return reply.send({ success: true, results });
   });
 
   // Push release to Radarr / Sonarr matching +-10% size
