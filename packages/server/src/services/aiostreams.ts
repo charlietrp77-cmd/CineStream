@@ -127,9 +127,9 @@ export function parseStreamBadges(stream: AioRawStream, isEpisode: boolean = fal
   let sizeText = '';
   let sizeBytes: number | undefined;
 
-  const sizeMatch = /(?:💾|size[:\s]*|\[|\()?\s*(\d+(?:\.\d+)?)\s*(GB|GiB|MB|MiB)\b/i.exec(combined);
+  const sizeMatch = /(?:💾|size[:\s]*|\[|\()?\s*(\d+(?:[.,]\d+)?)\s*(GB|GiB|MB|MiB)\b/i.exec(combined);
   if (sizeMatch) {
-    const val = parseFloat(sizeMatch[1]);
+    const val = parseFloat(sizeMatch[1].replace(',', '.'));
     const unit = sizeMatch[2].toUpperCase();
     if (unit.startsWith('G')) {
       sizeBytes = Math.round(val * 1024 * 1024 * 1024);
@@ -138,10 +138,19 @@ export function parseStreamBadges(stream: AioRawStream, isEpisode: boolean = fal
       sizeBytes = Math.round(val * 1024 * 1024);
       sizeText = `${val} ${unit}`;
     }
-  } else if (stream.behaviorHints?.videoSize) {
+  }
+
+  if (
+    stream.behaviorHints?.videoSize &&
+    typeof stream.behaviorHints.videoSize === 'number' &&
+    !isNaN(stream.behaviorHints.videoSize) &&
+    stream.behaviorHints.videoSize > 0
+  ) {
     sizeBytes = stream.behaviorHints.videoSize;
-    const gb = sizeBytes / (1024 * 1024 * 1024);
-    sizeText = gb >= 1 ? `${gb.toFixed(1)} GB` : `${(gb * 1024).toFixed(0)} MB`;
+    if (!sizeText) {
+      const gb = sizeBytes / (1024 * 1024 * 1024);
+      sizeText = gb >= 1 ? `${gb.toFixed(1)} GB` : `${(gb * 1024).toFixed(0)} MB`;
+    }
   }
 
   // Check if stream is a Season Pack (contains multiple episodes)
@@ -434,17 +443,48 @@ class AioStreamsService {
       const streams: AioRawStream[] = [];
 
       for (const item of rawData) {
-        const fileId = item[0] || item.id;
-        const filename = item[1] || item.filename || item[3] || 'easynews_video.mkv';
-        const sizeBytes = parseInt(item[10] || item.size || '0', 10);
+        const fileId = item[0] || item.hash || item.id;
+        const rawFn = item.fn || item['10'] || item.filename || item[1] || '';
+        const ext = item.extension || item['2'] || item['11'] || '';
+        let filename = rawFn;
+        if (filename && ext && !filename.toLowerCase().endsWith(ext.toLowerCase())) {
+          filename = `${filename}${ext}`;
+        }
+        if (!filename) {
+          filename = item.subject || item['6'] || 'easynews_video.mkv';
+        }
+
+        let sizeBytes = 0;
+        if (typeof item.rawSize === 'number' && item.rawSize > 0) {
+          sizeBytes = item.rawSize;
+        } else if (typeof item.size === 'number' && item.size > 0) {
+          sizeBytes = item.size;
+        } else if (typeof item.rawSize === 'string') {
+          sizeBytes = parseInt(item.rawSize, 10) || 0;
+        } else if (typeof item.size === 'string') {
+          sizeBytes = parseInt(item.size, 10) || 0;
+        }
+
+        // item['4'] in Easynews Solr is already formatted (e.g. "7.6 GB")
+        const sizeGb = (typeof item['4'] === 'string' && item['4'].trim())
+          ? item['4'].trim()
+          : sizeBytes > 0
+            ? sizeBytes >= 1024 * 1024 * 1024
+              ? (sizeBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
+              : (sizeBytes / (1024 * 1024)).toFixed(0) + ' MB'
+            : '';
+
         if (!fileId || !filename) continue;
 
-        const sizeGb = sizeBytes > 0 ? (sizeBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB' : '';
         const streamUrl = `https://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@members.easynews.com/dl/${fileId}/${encodeURIComponent(filename)}`;
+        const subject = item.subject || item['6'] || '';
+        const displayTitle = subject
+          ? `${filename}\n${subject}\n💾 ${sizeGb}`
+          : `${filename}\n💾 ${sizeGb}`;
 
         streams.push({
           name: 'Easynews',
-          title: `${filename}\n💾 ${sizeGb}`,
+          title: displayTitle,
           url: streamUrl,
           behaviorHints: {
             bingeGroup: 'easynews',
@@ -699,11 +739,15 @@ class AioStreamsService {
       if (dbRow && dbRow.all_streams_json) {
         const streams: ResolvedStream[] = JSON.parse(dbRow.all_streams_json);
         if (Array.isArray(streams) && streams.length > 0) {
-          this.prefetchCache.set(cacheKey, {
-            streams,
-            expiresAt: dbRow.expires_at,
-          });
-          return streams;
+          // If any cached Easynews stream is missing sizeText, bypass old cache and re-fetch fresh
+          const hasMissingEasynewsSize = streams.some((s) => s.badges?.source === 'Easynews' && !s.badges.sizeText);
+          if (!hasMissingEasynewsSize) {
+            this.prefetchCache.set(cacheKey, {
+              streams,
+              expiresAt: dbRow.expires_at,
+            });
+            return streams;
+          }
         }
       }
     } catch (_) {}
