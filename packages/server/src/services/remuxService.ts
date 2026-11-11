@@ -83,7 +83,18 @@ export class RemuxService {
       return potentialNasPath;
     }
 
-    // 5. Remote HTTP/HTTPS URL
+    // 5. If it's a CineStream proxy URL, decode underlying upstream URL
+    const proxyMatch = source.match(/\/proxy\/stream\?url=([^&]+)/);
+    if (proxyMatch) {
+      try {
+        const decoded = Buffer.from(proxyMatch[1], 'base64url').toString('utf-8');
+        if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
+          return decoded;
+        }
+      } catch (_) {}
+    }
+
+    // 6. Remote HTTP/HTTPS URL
     return source;
   }
 
@@ -104,6 +115,11 @@ export class RemuxService {
           '-reconnect_streamed', '1',
           '-reconnect_delay_max', '5'
         );
+
+        if (source.includes('easynews.com') && config.easynewsUsername && config.easynewsPassword) {
+          const auth = Buffer.from(`${config.easynewsUsername}:${config.easynewsPassword}`).toString('base64');
+          args.push('-headers', `Authorization: Basic ${auth}\r\n`);
+        }
       }
 
       args.push('-i', source);
@@ -278,6 +294,11 @@ export class RemuxService {
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5'
       );
+
+      if (source.includes('easynews.com') && config.easynewsUsername && config.easynewsPassword) {
+        const auth = Buffer.from(`${config.easynewsUsername}:${config.easynewsPassword}`).toString('base64');
+        args.push('-headers', `Authorization: Basic ${auth}\r\n`);
+      }
     }
 
     args.push('-i', source);

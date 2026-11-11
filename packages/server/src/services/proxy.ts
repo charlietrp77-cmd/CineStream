@@ -29,6 +29,35 @@ export async function getUpstreamMetadata(
   }
 
   let currentUrl = url;
+  const effectiveHeaders: Record<string, string> = { ...customHeaders };
+
+  // 1. If URL has embedded user:password, extract and convert to Basic Auth header, then clean URL
+  try {
+    const parsed = new URL(currentUrl);
+    if (parsed.username || parsed.password) {
+      const u = decodeURIComponent(parsed.username);
+      const p = decodeURIComponent(parsed.password);
+      parsed.username = '';
+      parsed.password = '';
+      currentUrl = parsed.toString();
+      if (!effectiveHeaders['Authorization'] && !effectiveHeaders['authorization']) {
+        effectiveHeaders['Authorization'] = `Basic ${Buffer.from(`${u}:${p}`).toString('base64')}`;
+      }
+    }
+  } catch (_) {}
+
+  // 2. Auto-inject Easynews credentials if streaming from Easynews and no Auth header was provided
+  if (
+    currentUrl.includes('easynews.com') &&
+    !effectiveHeaders['Authorization'] &&
+    !effectiveHeaders['authorization'] &&
+    config.easynewsUsername &&
+    config.easynewsPassword
+  ) {
+    const easynewsAuth = Buffer.from(`${config.easynewsUsername}:${config.easynewsPassword}`).toString('base64');
+    effectiveHeaders['Authorization'] = `Basic ${easynewsAuth}`;
+  }
+
   let redirects = 0;
   const maxRedirects = 10;
 
@@ -40,7 +69,7 @@ export async function getUpstreamMetadata(
     const reqHeaders: Record<string, string> = {
       Range: 'bytes=0-1',
       'User-Agent': 'CineStream/1.0.0 (Fastify)',
-      ...customHeaders,
+      ...effectiveHeaders,
     };
 
     const response = await undiciRequest(currentUrl, {
@@ -61,6 +90,12 @@ export async function getUpstreamMetadata(
       currentUrl = new URL(nextLocation, currentUrl).toString();
       redirects++;
       continue;
+    }
+
+    // Never cache error pages (e.g. 401 Auth Required HTML pages)
+    if (statusCode >= 400) {
+      console.warn(`[StreamProxy] Upstream returned HTTP ${statusCode} for ${currentUrl}`);
+      throw new Error(`Upstream returned HTTP ${statusCode}`);
     }
 
     // Reached final destination
@@ -159,6 +194,18 @@ export async function handleProxyStream(
   };
   req.raw.on('close', onClientClose);
 
+  const effectiveHeaders: Record<string, string> = { ...upstreamHeaders };
+  if (
+    targetUrl.includes('easynews.com') &&
+    !effectiveHeaders['Authorization'] &&
+    !effectiveHeaders['authorization'] &&
+    config.easynewsUsername &&
+    config.easynewsPassword
+  ) {
+    const easynewsAuth = Buffer.from(`${config.easynewsUsername}:${config.easynewsPassword}`).toString('base64');
+    effectiveHeaders['Authorization'] = `Basic ${easynewsAuth}`;
+  }
+
   // Helper to fetch byte range following redirects
   const fetchRangeStream = async (start: number, end: number) => {
     let fetchUrl = targetUrl;
@@ -169,7 +216,7 @@ export async function handleProxyStream(
         headers: {
           Range: `bytes=${start}-${end}`,
           'User-Agent': 'CineStream/1.0.0 (Fastify)',
-          ...upstreamHeaders,
+          ...effectiveHeaders,
         },
         signal: abortController.signal,
         dispatcher: undiciAgent,

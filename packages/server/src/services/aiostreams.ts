@@ -476,7 +476,7 @@ class AioStreamsService {
 
         if (!fileId || !filename) continue;
 
-        const streamUrl = `https://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@members.easynews.com/dl/${fileId}/${encodeURIComponent(filename)}`;
+        const streamUrl = `https://members.easynews.com/dl/${fileId}/${encodeURIComponent(filename)}`;
         const subject = item.subject || item['6'] || '';
         const displayTitle = subject
           ? `${filename}\n${subject}\n💾 ${sizeGb}`
