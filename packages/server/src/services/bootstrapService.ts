@@ -39,7 +39,7 @@ export class BootstrapService {
     try {
       const configXmlPath = path.join(this.radarrConfigDir, 'config.xml');
       if (fs.existsSync(configXmlPath)) {
-        const content = fs.readFileSync(configXmlPath, 'utf8');
+        let content = fs.readFileSync(configXmlPath, 'utf8');
         const match = content.match(/<ApiKey>([^<]+)<\/ApiKey>/i);
         if (match && match[1]) {
           const key = match[1].trim();
@@ -48,6 +48,16 @@ export class BootstrapService {
             appSettings.set('radarr_url', 'http://radarr:7878');
           }
           console.log(`[Bootstrap] Discovered existing Radarr API key from ${configXmlPath}`);
+
+          // Prevent Radarr v4/v5 mandatory auth modal on LAN/Docker bridge
+          if (content.includes('<AuthenticationMethod>None</AuthenticationMethod>')) {
+            content = content.replace(
+              /<AuthenticationMethod>None<\/AuthenticationMethod>/i,
+              '<AuthenticationMethod>External</AuthenticationMethod>\n  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>'
+            );
+            fs.writeFileSync(configXmlPath, content, 'utf8');
+            console.log(`[Bootstrap] Updated Radarr auth to External/DisabledForLocalAddresses at ${configXmlPath}`);
+          }
           return;
         }
       }
@@ -70,7 +80,8 @@ export class BootstrapService {
   <BindAddress>*</BindAddress>
   <Port>7878</Port>
   <ApiKey>${key}</ApiKey>
-  <AuthenticationMethod>None</AuthenticationMethod>
+  <AuthenticationMethod>External</AuthenticationMethod>
+  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
 </Config>
 `;
         fs.writeFileSync(configXmlPath, xml, 'utf8');
@@ -85,7 +96,7 @@ export class BootstrapService {
     try {
       const configXmlPath = path.join(this.sonarrConfigDir, 'config.xml');
       if (fs.existsSync(configXmlPath)) {
-        const content = fs.readFileSync(configXmlPath, 'utf8');
+        let content = fs.readFileSync(configXmlPath, 'utf8');
         const match = content.match(/<ApiKey>([^<]+)<\/ApiKey>/i);
         if (match && match[1]) {
           const key = match[1].trim();
@@ -94,6 +105,16 @@ export class BootstrapService {
             appSettings.set('sonarr_url', 'http://sonarr:8989');
           }
           console.log(`[Bootstrap] Discovered existing Sonarr API key from ${configXmlPath}`);
+
+          // Prevent Sonarr v4 mandatory auth modal on LAN/Docker bridge
+          if (content.includes('<AuthenticationMethod>None</AuthenticationMethod>')) {
+            content = content.replace(
+              /<AuthenticationMethod>None<\/AuthenticationMethod>/i,
+              '<AuthenticationMethod>External</AuthenticationMethod>\n  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>'
+            );
+            fs.writeFileSync(configXmlPath, content, 'utf8');
+            console.log(`[Bootstrap] Updated Sonarr auth to External/DisabledForLocalAddresses at ${configXmlPath}`);
+          }
           return;
         }
       }
@@ -116,7 +137,8 @@ export class BootstrapService {
   <BindAddress>*</BindAddress>
   <Port>8989</Port>
   <ApiKey>${key}</ApiKey>
-  <AuthenticationMethod>None</AuthenticationMethod>
+  <AuthenticationMethod>External</AuthenticationMethod>
+  <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
 </Config>
 `;
         fs.writeFileSync(configXmlPath, xml, 'utf8');
