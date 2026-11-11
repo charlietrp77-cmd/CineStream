@@ -188,7 +188,7 @@ export class BootstrapService {
       this.ensureFilePermissions(iniPath);
       if (fs.existsSync(iniPath)) {
         const content = fs.readFileSync(iniPath, 'utf8');
-        const match = content.match(/^api_key\s*=\s*["']?([a-zA-Z0-9_-]+)["']?/mi);
+        const match = content.match(/(?:^|\n)[ \t]*api_key[ \t]*=[ \t]*["']?([a-zA-Z0-9]+)["']?/i);
         if (match && match[1]) {
           const key = match[1].trim();
           if (key) {
@@ -205,6 +205,53 @@ export class BootstrapService {
       console.warn('[Bootstrap] Error reading sabnzbd.ini:', err.message);
     }
     return appSettings.get('sabnzbd_api_key') || process.env.SABNZBD_API_KEY || null;
+  }
+
+  public async getVerifiedSabnzbdApiKey(candidate?: string): Promise<string | null> {
+    const list: string[] = [];
+    if (candidate) list.push(candidate.trim());
+
+    // 1. Check sabnzbd.ini directly for both api_key and nzb_key
+    try {
+      const iniPath = path.join(this.sabnzbdConfigDir, 'sabnzbd.ini');
+      this.ensureFilePermissions(iniPath);
+      if (fs.existsSync(iniPath)) {
+        const content = fs.readFileSync(iniPath, 'utf8');
+        const m = content.match(/(?:^|\n)[ \t]*api_key[ \t]*=[ \t]*["']?([a-zA-Z0-9]+)["']?/i);
+        if (m && m[1]) list.push(m[1].trim());
+        const n = content.match(/(?:^|\n)[ \t]*nzb_key[ \t]*=[ \t]*["']?([a-zA-Z0-9]+)["']?/i);
+        if (n && n[1]) list.push(n[1].trim());
+      }
+    } catch (_) {}
+
+    // 2. Check appSettings
+    const saved = appSettings.get('sabnzbd_api_key');
+    if (saved) list.push(saved.trim());
+
+    // 3. Check env
+    if (process.env.SABNZBD_API_KEY) list.push(process.env.SABNZBD_API_KEY.trim());
+
+    const uniqueKeys = Array.from(new Set(list.filter(Boolean)));
+
+    for (const key of uniqueKeys) {
+      try {
+        const res = await undiciFetch(`http://sabnzbd:8080/api?mode=version&output=json&apikey=${key}`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (res.ok) {
+          const json: any = await res.json();
+          if (json && json.version && json.status !== false) {
+            if (appSettings.get('sabnzbd_api_key') !== key) {
+              appSettings.set('sabnzbd_api_key', key);
+              console.log(`[Bootstrap] Successfully verified live SABnzbd API key (${key.substring(0, 4)}...)`);
+            }
+            return key;
+          }
+        }
+      } catch (_) {}
+    }
+
+    return uniqueKeys[0] || null;
   }
 
   public syncArrApiKey(target: 'radarr' | 'sonarr'): string | null {
@@ -410,6 +457,7 @@ priority = 0
     sabKey: string
   ): Promise<boolean> {
     const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
+    const targetCategory = target === 'sonarr' ? 'tv' : 'movies';
     try {
       const dcRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient`, {
         headers,
@@ -438,14 +486,34 @@ priority = 0
           needsUpdate = true;
         }
 
+        const hostField = existingSab.fields?.find((f: any) => f.name?.toLowerCase() === 'host');
+        if (hostField && hostField.value !== 'sabnzbd') {
+          hostField.value = 'sabnzbd';
+          needsUpdate = true;
+        }
+
+        const portField = existingSab.fields?.find((f: any) => f.name?.toLowerCase() === 'port');
+        if (portField && Number(portField.value) !== 8080) {
+          portField.value = 8080;
+          needsUpdate = true;
+        }
+
+        const catField = existingSab.fields?.find((f: any) =>
+          ['category', 'tvcategory', 'moviecategory'].includes(f.name?.toLowerCase())
+        );
+        if (catField && catField.value !== targetCategory) {
+          catField.value = targetCategory;
+          needsUpdate = true;
+        }
+
         if (needsUpdate) {
-          const updateRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient/${existingSab.id}`, {
+          const updateRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient/${existingSab.id}?forceSave=true`, {
             method: 'PUT',
             headers,
             body: JSON.stringify(existingSab),
           });
           if (updateRes.ok) {
-            console.log(`[Bootstrap] Successfully updated ${target} SABnzbd client with current API key`);
+            console.log(`[Bootstrap] Successfully updated ${target} SABnzbd client with verified API key`);
             return true;
           } else {
             const errText = await updateRes.text();
@@ -476,8 +544,6 @@ priority = 0
       } catch (err: any) {
         console.warn(`[Bootstrap] Schema fetch for ${target} downloadclient skipped:`, err.message);
       }
-
-      const targetCategory = target === 'sonarr' ? 'tv' : 'movies';
 
       let fields: Array<{ name: string; value: any }> = [];
       if (sabSchema && Array.isArray(sabSchema.fields)) {
@@ -518,7 +584,7 @@ priority = 0
         fields,
       };
 
-      const addRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient`, {
+      const addRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient?forceSave=true`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
@@ -539,8 +605,9 @@ priority = 0
   }
 
   public async syncSabnzbdClients(overrideKey?: string): Promise<{ radarr: boolean; sonarr: boolean }> {
-    const sabKey = overrideKey || this.syncSabnzbdApiKey() || appSettings.get('sabnzbd_api_key') || process.env.SABNZBD_API_KEY || '';
+    const sabKey = await this.getVerifiedSabnzbdApiKey(overrideKey);
     if (!sabKey) {
+      console.warn('[Bootstrap] No valid SABnzbd API key could be discovered or verified');
       return { radarr: false, sonarr: false };
     }
 
