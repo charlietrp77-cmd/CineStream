@@ -13,7 +13,6 @@ import {
   Download,
   Zap,
   Cloud,
-  Radar,
   Settings,
   ExternalLink,
 } from 'lucide-react';
@@ -408,8 +407,11 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
               {/* Radarr & Sonarr Integration Status & Settings */}
               <div className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-gray-300 flex items-center gap-1.5">
-                    <Radar className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="font-semibold text-gray-300 flex items-center gap-2">
+                    <span className="flex items-center -space-x-1 shrink-0">
+                      <RadarrIcon className="w-4 h-4 shrink-0" />
+                      <SonarrIcon className="w-4 h-4 shrink-0" />
+                    </span>
                     Radarr & Sonarr Indexer Search (±10% Size Match)
                   </span>
                   <div className="flex items-center gap-2">
@@ -540,7 +542,10 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                     <div className="space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
-                          <label className="text-[10px] font-semibold text-gray-400 uppercase">Radarr URL</label>
+                          <label className="text-[10px] font-semibold text-gray-400 uppercase flex items-center gap-1.5">
+                            <RadarrIcon className="w-3.5 h-3.5 shrink-0" />
+                            Radarr URL
+                          </label>
                           <input
                             type="text"
                             placeholder="http://192.168.1.50:7878"
@@ -550,7 +555,10 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                           />
                         </div>
                         <div>
-                          <label className="text-[10px] font-semibold text-gray-400 uppercase">Radarr API Key</label>
+                          <label className="text-[10px] font-semibold text-gray-400 uppercase flex items-center gap-1.5">
+                            <RadarrIcon className="w-3.5 h-3.5 shrink-0" />
+                            Radarr API Key
+                          </label>
                           <input
                             type="password"
                             placeholder="API Key"
@@ -563,7 +571,10 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
-                          <label className="text-[10px] font-semibold text-gray-400 uppercase">Sonarr URL</label>
+                          <label className="text-[10px] font-semibold text-gray-400 uppercase flex items-center gap-1.5">
+                            <SonarrIcon className="w-3.5 h-3.5 shrink-0" />
+                            Sonarr URL
+                          </label>
                           <input
                             type="text"
                             placeholder="http://192.168.1.50:8989"
@@ -573,7 +584,10 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                           />
                         </div>
                         <div>
-                          <label className="text-[10px] font-semibold text-gray-400 uppercase">Sonarr API Key</label>
+                          <label className="text-[10px] font-semibold text-gray-400 uppercase flex items-center gap-1.5">
+                            <SonarrIcon className="w-3.5 h-3.5 shrink-0" />
+                            Sonarr API Key
+                          </label>
                           <input
                             type="password"
                             placeholder="API Key"

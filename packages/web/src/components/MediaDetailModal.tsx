@@ -15,7 +15,6 @@ import {
   CheckCheck,
   Eye,
   EyeOff,
-  Radar,
   Magnet,
   FileDown,
 } from 'lucide-react';
@@ -23,7 +22,7 @@ import { CatalogItem, ResolvedStream, TvSeasonEpisode, NasCacheItem, ArrPushResu
 import { useProfileStore } from '../store/useProfileStore';
 import { offlineDownloader } from '../bridge/offlineDownloader';
 import { useOfflineStore } from '../store/useOfflineStore';
-import { ProviderBadge } from './ProviderBadge';
+import { ProviderBadge, RadarrIcon, SonarrIcon } from './ProviderBadge';
 import { Capacitor } from '@capacitor/core';
 
 interface MediaDetailModalProps {
@@ -1273,8 +1272,10 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               >
                 {pushingArrStreamId === bestStream.id ? (
                   <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
+                ) : item.type === 'tv' ? (
+                  <SonarrIcon className="w-4 h-4 flex-shrink-0" />
                 ) : (
-                  <Radar className="w-4 h-4 text-cyan-400" />
+                  <RadarrIcon className="w-4 h-4 flex-shrink-0" />
                 )}
                 <span>Push to {item.type === 'tv' ? 'Sonarr' : 'Radarr'} (±10% Size)</span>
               </button>
@@ -1739,8 +1740,10 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     >
                       {pushingArrStreamId === stream.id ? (
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : item.type === 'tv' ? (
+                        <SonarrIcon className="w-3.5 h-3.5 flex-shrink-0" />
                       ) : (
-                        <Radar className="w-3.5 h-3.5" />
+                        <RadarrIcon className="w-3.5 h-3.5 flex-shrink-0" />
                       )}
                     </button>
 
