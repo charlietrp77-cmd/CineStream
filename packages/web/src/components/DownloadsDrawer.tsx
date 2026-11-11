@@ -58,6 +58,7 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
     radarr_api_key: '',
     sonarr_url: '',
     sonarr_api_key: '',
+    sabnzbd_api_key: '',
     althub_api_key: '',
     nzbgeek_api_key: '',
     drunkenslug_api_key: '',
@@ -161,7 +162,7 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
     try {
       const res = await fetch('/api/arr/sync-indexers', { method: 'POST' });
       if (res.ok) {
-        setSyncIndexersMessage('Newznab indexers synced into Radarr & Sonarr!');
+        setSyncIndexersMessage('Indexers & SABnzbd synced into Radarr & Sonarr!');
         await fetchArrStatus();
       } else {
         setSyncIndexersMessage('Indexer sync failed.');
@@ -624,6 +625,24 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                             className="w-full mt-1 bg-[#141414] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
                           />
                         </div>
+                      </div>
+
+                      {/* SABnzbd Usenet Downloader API Key */}
+                      <div>
+                        <label className="text-[10px] font-semibold text-yellow-300 uppercase flex items-center gap-1.5">
+                          <SabnzbdIcon className="w-3.5 h-3.5 shrink-0" />
+                          SABnzbd API Key (Usenet Downloader)
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="Auto-discovered from sabnzbd.ini, or paste from SABnzbd Config -> General"
+                          value={arrSettingsForm.sabnzbd_api_key || ''}
+                          onChange={(e) => setArrSettingsForm({ ...arrSettingsForm, sabnzbd_api_key: e.target.value })}
+                          className="w-full mt-1 bg-[#141414] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500 font-mono"
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          Auto-configured into Radarr & Sonarr as the primary Usenet download client.
+                        </p>
                       </div>
 
                       {/* Usenet Indexer API Keys */}

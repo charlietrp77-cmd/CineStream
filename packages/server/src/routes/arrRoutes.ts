@@ -26,6 +26,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       radarr_api_key?: string;
       sonarr_url?: string;
       sonarr_api_key?: string;
+      sabnzbd_api_key?: string;
       auto_cache_episodes_ahead?: number | string;
       althub_api_key?: string;
       nzbgeek_api_key?: string;
@@ -36,6 +37,10 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
     if (body.radarr_api_key !== undefined) appSettings.set('radarr_api_key', body.radarr_api_key);
     if (body.sonarr_url !== undefined) appSettings.set('sonarr_url', body.sonarr_url);
     if (body.sonarr_api_key !== undefined) appSettings.set('sonarr_api_key', body.sonarr_api_key);
+    if (body.sabnzbd_api_key !== undefined) {
+      appSettings.set('sabnzbd_api_key', body.sabnzbd_api_key);
+      bootstrapService.syncSabnzbdClients(body.sabnzbd_api_key).catch(() => {});
+    }
     if (body.auto_cache_episodes_ahead !== undefined) {
       appSettings.set('auto_cache_episodes_ahead', String(Math.max(0, parseInt(String(body.auto_cache_episodes_ahead), 10) || 0)));
     }
@@ -57,7 +62,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
     return reply.send({ settings: updated, status });
   });
 
-  // Force sync configured Newznab indexers into Radarr & Sonarr
+  // Force sync configured Newznab indexers & SABnzbd downloader into Radarr & Sonarr
   fastify.post('/api/arr/sync-indexers', async (_req: FastifyRequest, reply: FastifyReply) => {
     const radarrUrl = appSettings.get('radarr_url') || 'http://radarr:7878';
     const radarrKey = appSettings.get('radarr_api_key');
@@ -72,7 +77,17 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       results.sonarr = await bootstrapService.registerNewznabIndexers('sonarr', sonarrUrl, sonarrKey, [5000, 5020, 5030, 5040, 5045]);
     }
 
+    results.sabnzbd = await bootstrapService.syncSabnzbdClients();
+
     return reply.send({ success: true, results });
+  });
+
+  // Dedicated sync for SABnzbd API key and download client registration
+  fastify.post('/api/arr/sync-sabnzbd', async (req: FastifyRequest, reply: FastifyReply) => {
+    const query = req.query as { key?: string };
+    const overrideKey = query.key || appSettings.get('sabnzbd_api_key');
+    const result = await bootstrapService.syncSabnzbdClients(overrideKey);
+    return reply.send({ success: true, result });
   });
 
   // Push release to Radarr / Sonarr matching +-10% size

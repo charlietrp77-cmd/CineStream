@@ -149,15 +149,37 @@ export class BootstrapService {
     }
   }
 
+  public syncSabnzbdApiKey(): string | null {
+    try {
+      const iniPath = path.join(this.sabnzbdConfigDir, 'sabnzbd.ini');
+      if (fs.existsSync(iniPath)) {
+        const content = fs.readFileSync(iniPath, 'utf8');
+        const match = content.match(/^api_key\s*=\s*["']?([a-zA-Z0-9_-]+)["']?/mi);
+        if (match && match[1]) {
+          const key = match[1].trim();
+          if (key) {
+            const current = appSettings.get('sabnzbd_api_key');
+            if (current !== key) {
+              appSettings.set('sabnzbd_api_key', key);
+              console.log(`[Bootstrap] Auto-discovered & synced current SABnzbd API key from ${iniPath}: ${key.substring(0, 4)}...`);
+            }
+            return key;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Bootstrap] Error reading sabnzbd.ini:', err.message);
+    }
+    return appSettings.get('sabnzbd_api_key') || process.env.SABNZBD_API_KEY || null;
+  }
+
   private bootstrapSabnzbd(): void {
     try {
       const iniPath = path.join(this.sabnzbdConfigDir, 'sabnzbd.ini');
       if (fs.existsSync(iniPath)) {
         let content = fs.readFileSync(iniPath, 'utf8');
-        const match = content.match(/^api_key\s*=\s*([a-f0-9_]+)/m);
-        if (match && match[1]) {
-          const key = match[1].trim();
-          appSettings.set('sabnzbd_api_key', key);
+        const key = this.syncSabnzbdApiKey();
+        if (key) {
           console.log(`[Bootstrap] Discovered existing SABnzbd API key from ${iniPath}`);
         }
 
@@ -183,8 +205,9 @@ export class BootstrapService {
 
       if (fs.existsSync(this.sabnzbdConfigDir) || this.tryCreateDir(this.sabnzbdConfigDir)) {
         let sabKey = appSettings.get('sabnzbd_api_key');
-        if (!sabKey) {
-          sabKey = 'cs_sab_' + crypto.randomBytes(12).toString('hex');
+        // SABnzbd strictly requires a 32-character hexadecimal API key
+        if (!sabKey || !/^[a-fA-F0-9]{32}$/.test(sabKey)) {
+          sabKey = crypto.randomBytes(16).toString('hex');
           appSettings.set('sabnzbd_api_key', sabKey);
         }
 
@@ -318,34 +341,35 @@ priority = 0
     }
   }
 
-  private async configureRadarr(apiKey: string, sabKey: string): Promise<void> {
-    const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
+  public async syncSabnzbdClients(overrideKey?: string): Promise<{ radarr: boolean; sonarr: boolean }> {
+    const sabKey = overrideKey || this.syncSabnzbdApiKey() || appSettings.get('sabnzbd_api_key') || process.env.SABNZBD_API_KEY || '';
+    if (!sabKey) {
+      return { radarr: false, sonarr: false };
+    }
 
-    // A. Root folder /mnt/nas/movies
-    try {
-      const rfRes = await undiciFetch('http://radarr:7878/api/v3/rootfolder', { headers });
-      if (rfRes.ok) {
-        const rootFolders: any = await rfRes.json();
-        const hasMovieRoot = Array.isArray(rootFolders) && rootFolders.some((f: any) => f.path === '/mnt/nas/movies');
-        if (!hasMovieRoot) {
-          await undiciFetch('http://radarr:7878/api/v3/rootfolder', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ path: '/mnt/nas/movies' }),
-          });
-        }
-      }
-    } catch (_) {}
+    const radarrKey = appSettings.get('radarr_api_key') || config.radarrApiKey;
+    const sonarrKey = appSettings.get('sonarr_api_key') || config.sonarrApiKey;
+    const radarrUrl = appSettings.get('radarr_url') || 'http://radarr:7878';
+    const sonarrUrl = appSettings.get('sonarr_url') || 'http://sonarr:8989';
 
-    // B. Download client SABnzbd
-    if (sabKey) {
+    let radarrSynced = false;
+    let sonarrSynced = false;
+
+    if (radarrKey) {
       try {
-        const dcRes = await undiciFetch('http://radarr:7878/api/v3/downloadclient', { headers });
+        const headers = { 'X-Api-Key': radarrKey, 'Content-Type': 'application/json' };
+        const dcRes = await undiciFetch(`${radarrUrl}/api/v3/downloadclient`, {
+          headers,
+          signal: AbortSignal.timeout(4000),
+        });
         if (dcRes.ok) {
           const clients: any = await dcRes.json();
-          const hasSab = Array.isArray(clients) && clients.some((c: any) => c.name?.toLowerCase().includes('sabnzbd'));
-          if (!hasSab) {
-            await undiciFetch('http://radarr:7878/api/v3/downloadclient', {
+          const existingSab = Array.isArray(clients) && clients.find((c: any) =>
+            c.name?.toLowerCase().includes('sabnzbd') || c.implementation?.toLowerCase().includes('sabnzbd')
+          );
+
+          if (!existingSab) {
+            await undiciFetch(`${radarrUrl}/api/v3/downloadclient`, {
               method: 'POST',
               headers,
               body: JSON.stringify({
@@ -365,62 +389,46 @@ priority = 0
                 ],
               }),
             });
+            radarrSynced = true;
+            console.log('[Bootstrap] Registered new SABnzbd client in Radarr');
+          } else {
+            const apiKeyField = existingSab.fields?.find((f: any) => f.name === 'apiKey');
+            if (apiKeyField && apiKeyField.value !== sabKey) {
+              apiKeyField.value = sabKey;
+              const updateRes = await undiciFetch(`${radarrUrl}/api/v3/downloadclient/${existingSab.id}`, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify(existingSab),
+              });
+              if (updateRes.ok) {
+                radarrSynced = true;
+                console.log('[Bootstrap] Successfully updated Radarr SABnzbd client with current API key');
+              }
+            } else {
+              radarrSynced = true;
+            }
           }
         }
-      } catch (_) {}
+      } catch (err: any) {
+        console.warn('[Bootstrap] Error syncing Radarr SABnzbd client:', err.message);
+      }
     }
 
-    // C. Automated daily backup configuration
-    try {
-      const bRes = await undiciFetch('http://radarr:7878/api/v3/config/backup', { headers });
-      if (bRes.ok) {
-        const backupCfg: any = await bRes.json();
-        if (backupCfg && backupCfg.folder !== '/mnt/backups/radarr') {
-          backupCfg.folder = '/mnt/backups/radarr';
-          backupCfg.interval = 1;
-          backupCfg.retention = 14;
-          await undiciFetch('http://radarr:7878/api/v3/config/backup', {
-            method: 'PUT',
-            headers,
-            body: JSON.stringify(backupCfg),
-          });
-          console.log('[Bootstrap] Configured Radarr automated backup folder to /mnt/backups/radarr');
-        }
-      }
-    } catch (_) {}
-
-    // D. Auto-register Newznab Indexers (AltHub, NZBGeek, DrunkenSlug) in Radarr
-    await this.registerNewznabIndexers('radarr', 'http://radarr:7878', apiKey, [2000, 2030, 2040, 2045, 2050, 2060]);
-  }
-
-  private async configureSonarr(apiKey: string, sabKey: string): Promise<void> {
-    const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
-
-    // A. Root folder /mnt/nas/tv
-    try {
-      const rfRes = await undiciFetch('http://sonarr:8989/api/v3/rootfolder', { headers });
-      if (rfRes.ok) {
-        const rootFolders: any = await rfRes.json();
-        const hasTvRoot = Array.isArray(rootFolders) && rootFolders.some((f: any) => f.path === '/mnt/nas/tv');
-        if (!hasTvRoot) {
-          await undiciFetch('http://sonarr:8989/api/v3/rootfolder', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ path: '/mnt/nas/tv' }),
-          });
-        }
-      }
-    } catch (_) {}
-
-    // B. Download client SABnzbd
-    if (sabKey) {
+    if (sonarrKey) {
       try {
-        const dcRes = await undiciFetch('http://sonarr:8989/api/v3/downloadclient', { headers });
+        const headers = { 'X-Api-Key': sonarrKey, 'Content-Type': 'application/json' };
+        const dcRes = await undiciFetch(`${sonarrUrl}/api/v3/downloadclient`, {
+          headers,
+          signal: AbortSignal.timeout(4000),
+        });
         if (dcRes.ok) {
           const clients: any = await dcRes.json();
-          const hasSab = Array.isArray(clients) && clients.some((c: any) => c.name?.toLowerCase().includes('sabnzbd'));
-          if (!hasSab) {
-            await undiciFetch('http://sonarr:8989/api/v3/downloadclient', {
+          const existingSab = Array.isArray(clients) && clients.find((c: any) =>
+            c.name?.toLowerCase().includes('sabnzbd') || c.implementation?.toLowerCase().includes('sabnzbd')
+          );
+
+          if (!existingSab) {
+            await undiciFetch(`${sonarrUrl}/api/v3/downloadclient`, {
               method: 'POST',
               headers,
               body: JSON.stringify({
@@ -440,21 +448,113 @@ priority = 0
                 ],
               }),
             });
+            sonarrSynced = true;
+            console.log('[Bootstrap] Registered new SABnzbd client in Sonarr');
+          } else {
+            const apiKeyField = existingSab.fields?.find((f: any) => f.name === 'apiKey');
+            if (apiKeyField && apiKeyField.value !== sabKey) {
+              apiKeyField.value = sabKey;
+              const updateRes = await undiciFetch(`${sonarrUrl}/api/v3/downloadclient/${existingSab.id}`, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify(existingSab),
+              });
+              if (updateRes.ok) {
+                sonarrSynced = true;
+                console.log('[Bootstrap] Successfully updated Sonarr SABnzbd client with current API key');
+              }
+            } else {
+              sonarrSynced = true;
+            }
           }
         }
-      } catch (_) {}
+      } catch (err: any) {
+        console.warn('[Bootstrap] Error syncing Sonarr SABnzbd client:', err.message);
+      }
     }
+
+    return { radarr: radarrSynced, sonarr: sonarrSynced };
+  }
+
+  private async configureRadarr(apiKey: string, sabKey: string): Promise<void> {
+    const radarrUrl = appSettings.get('radarr_url') || 'http://radarr:7878';
+    const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
+
+    // A. Root folder /mnt/nas/movies
+    try {
+      const rfRes = await undiciFetch(`${radarrUrl}/api/v3/rootfolder`, { headers });
+      if (rfRes.ok) {
+        const rootFolders: any = await rfRes.json();
+        const hasMovieRoot = Array.isArray(rootFolders) && rootFolders.some((f: any) => f.path === '/mnt/nas/movies');
+        if (!hasMovieRoot) {
+          await undiciFetch(`${radarrUrl}/api/v3/rootfolder`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ path: '/mnt/nas/movies' }),
+          });
+        }
+      }
+    } catch (_) {}
+
+    // B. Download client SABnzbd
+    await this.syncSabnzbdClients(sabKey);
 
     // C. Automated daily backup configuration
     try {
-      const bRes = await undiciFetch('http://sonarr:8989/api/v3/config/backup', { headers });
+      const bRes = await undiciFetch(`${radarrUrl}/api/v3/config/backup`, { headers });
+      if (bRes.ok) {
+        const backupCfg: any = await bRes.json();
+        if (backupCfg && backupCfg.folder !== '/mnt/backups/radarr') {
+          backupCfg.folder = '/mnt/backups/radarr';
+          backupCfg.interval = 1;
+          backupCfg.retention = 14;
+          await undiciFetch(`${radarrUrl}/api/v3/config/backup`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(backupCfg),
+          });
+          console.log('[Bootstrap] Configured Radarr automated backup folder to /mnt/backups/radarr');
+        }
+      }
+    } catch (_) {}
+
+    // D. Auto-register Newznab Indexers (AltHub, NZBGeek, DrunkenSlug) in Radarr
+    await this.registerNewznabIndexers('radarr', radarrUrl, apiKey, [2000, 2030, 2040, 2045, 2050, 2060]);
+  }
+
+  private async configureSonarr(apiKey: string, sabKey: string): Promise<void> {
+    const sonarrUrl = appSettings.get('sonarr_url') || 'http://sonarr:8989';
+    const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
+
+    // A. Root folder /mnt/nas/tv
+    try {
+      const rfRes = await undiciFetch(`${sonarrUrl}/api/v3/rootfolder`, { headers });
+      if (rfRes.ok) {
+        const rootFolders: any = await rfRes.json();
+        const hasTvRoot = Array.isArray(rootFolders) && rootFolders.some((f: any) => f.path === '/mnt/nas/tv');
+        if (!hasTvRoot) {
+          await undiciFetch(`${sonarrUrl}/api/v3/rootfolder`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ path: '/mnt/nas/tv' }),
+          });
+        }
+      }
+    } catch (_) {}
+
+    // B. Download client SABnzbd
+    await this.syncSabnzbdClients(sabKey);
+
+    // C. Automated daily backup configuration
+    try {
+      const bRes = await undiciFetch(`${sonarrUrl}/api/v3/config/backup`, { headers });
       if (bRes.ok) {
         const backupCfg: any = await bRes.json();
         if (backupCfg && backupCfg.folder !== '/mnt/backups/sonarr') {
           backupCfg.folder = '/mnt/backups/sonarr';
           backupCfg.interval = 1;
           backupCfg.retention = 14;
-          await undiciFetch('http://sonarr:8989/api/v3/config/backup', {
+          await undiciFetch(`${sonarrUrl}/api/v3/config/backup`, {
             method: 'PUT',
             headers,
             body: JSON.stringify(backupCfg),
@@ -465,7 +565,7 @@ priority = 0
     } catch (_) {}
 
     // D. Auto-register Newznab Indexers (AltHub, NZBGeek, DrunkenSlug) in Sonarr
-    await this.registerNewznabIndexers('sonarr', 'http://sonarr:8989', apiKey, [5000, 5020, 5030, 5040, 5045]);
+    await this.registerNewznabIndexers('sonarr', sonarrUrl, apiKey, [5000, 5020, 5030, 5040, 5045]);
   }
 
   public async registerNewznabIndexers(

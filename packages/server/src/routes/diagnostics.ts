@@ -102,6 +102,9 @@ async function checkSabnzbdHealth(): Promise<{
     });
     if (res.ok) {
       const json: any = await res.json();
+      if (json.status === false && json.error) {
+        return { online: false, url, version: null, error: json.error };
+      }
       return { online: true, url, version: json.version || 'Active', error: null };
     }
     return { online: false, url, version: null, error: `HTTP ${res.status}` };

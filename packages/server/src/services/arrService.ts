@@ -227,7 +227,10 @@ export class ArrService {
           signal: AbortSignal.timeout(2000),
         });
         if (sabRes.ok) {
-          sabStatus.online = true;
+          const json: any = await sabRes.json();
+          if (json.version && json.status !== false) {
+            sabStatus.online = true;
+          }
         }
       } catch (_) {}
     }
