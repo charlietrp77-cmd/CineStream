@@ -27,6 +27,9 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       sonarr_url?: string;
       sonarr_api_key?: string;
       auto_cache_episodes_ahead?: number | string;
+      althub_api_key?: string;
+      nzbgeek_api_key?: string;
+      drunkenslug_api_key?: string;
     };
 
     if (body.radarr_url !== undefined) appSettings.set('radarr_url', body.radarr_url);
@@ -35,6 +38,18 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
     if (body.sonarr_api_key !== undefined) appSettings.set('sonarr_api_key', body.sonarr_api_key);
     if (body.auto_cache_episodes_ahead !== undefined) {
       appSettings.set('auto_cache_episodes_ahead', String(Math.max(0, parseInt(String(body.auto_cache_episodes_ahead), 10) || 0)));
+    }
+    if (body.althub_api_key !== undefined) appSettings.set('althub_api_key', body.althub_api_key);
+    if (body.nzbgeek_api_key !== undefined) appSettings.set('nzbgeek_api_key', body.nzbgeek_api_key);
+    if (body.drunkenslug_api_key !== undefined) appSettings.set('drunkenslug_api_key', body.drunkenslug_api_key);
+
+    if (body.althub_api_key !== undefined || body.nzbgeek_api_key !== undefined || body.drunkenslug_api_key !== undefined) {
+      const radarrUrl = appSettings.get('radarr_url') || 'http://radarr:7878';
+      const radarrKey = appSettings.get('radarr_api_key');
+      const sonarrUrl = appSettings.get('sonarr_url') || 'http://sonarr:8989';
+      const sonarrKey = appSettings.get('sonarr_api_key');
+      if (radarrKey) bootstrapService.registerNewznabIndexers('radarr', radarrUrl, radarrKey, [2000, 2030, 2040, 2045, 2060]).catch(() => {});
+      if (sonarrKey) bootstrapService.registerNewznabIndexers('sonarr', sonarrUrl, sonarrKey, [5000, 5020, 5030, 5040, 5045]).catch(() => {});
     }
 
     const updated = appSettings.getAll();

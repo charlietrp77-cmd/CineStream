@@ -16,6 +16,10 @@ export class AppSettingsService {
     if (key === 'sonarr_url') return config.sonarrUrl || fallback;
     if (key === 'sonarr_api_key') return config.sonarrApiKey || fallback;
     if (key === 'auto_cache_episodes_ahead') return String(config.autoCacheEpisodesAhead || 0);
+    if (key === 'althub_api_key') return config.althubApiKey || fallback;
+    if (key === 'nzbgeek_api_key') return config.nzbgeekApiKey || fallback;
+    if (key === 'drunkenslug_api_key') return config.drunkenslugApiKey || fallback;
+    if (key === 'sabnzbd_api_key') return fallback;
 
     return fallback;
   }
@@ -36,6 +40,9 @@ export class AppSettingsService {
       sonarr_url: this.get('sonarr_url'),
       sonarr_api_key: this.get('sonarr_api_key'),
       auto_cache_episodes_ahead: this.get('auto_cache_episodes_ahead'),
+      althub_api_key: this.get('althub_api_key'),
+      nzbgeek_api_key: this.get('nzbgeek_api_key'),
+      drunkenslug_api_key: this.get('drunkenslug_api_key'),
     };
     return result;
   }

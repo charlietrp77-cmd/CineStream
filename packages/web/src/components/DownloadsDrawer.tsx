@@ -58,6 +58,9 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
     radarr_api_key: '',
     sonarr_url: '',
     sonarr_api_key: '',
+    althub_api_key: '',
+    nzbgeek_api_key: '',
+    drunkenslug_api_key: '',
   });
   const [arrSaving, setArrSaving] = useState(false);
   const [arrSaveMessage, setArrSaveMessage] = useState<string | null>(null);
@@ -516,26 +519,46 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                   </div>
                 </div>
 
-                {/* Indexers & Downloaders Brand Indicators */}
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <span className="text-[10px] text-gray-400 font-medium">Indexers:</span>
-                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-[10px] text-cyan-300 font-bold" title="AltHub Usenet Indexer">
-                    <AlthubIcon className="w-3 h-3 flex-shrink-0" />
-                    AltHub
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-300 font-bold" title="NZBGeek Usenet Indexer">
-                    <NzbgeekIcon className="w-3 h-3 flex-shrink-0" />
-                    NZBGeek
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-lime-500/10 border border-lime-500/30 text-[10px] text-lime-300 font-bold" title="DrunkenSlug Usenet Indexer">
-                    <DrunkenslugIcon className="w-3 h-3 flex-shrink-0" />
-                    DrunkenSlug
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-[10px] text-yellow-300 font-bold ml-auto" title="SABnzbd Usenet Downloader">
-                    <SabnzbdIcon className="w-3 h-3 flex-shrink-0" />
-                    SABnzbd
-                  </span>
-                </div>
+                {/* Indexers & Downloaders Brand Indicators (Only Render Enabled) */}
+                {(() => {
+                  const hasAlthub = Boolean(arrStatus?.indexers?.althub);
+                  const hasNzbgeek = Boolean(arrStatus?.indexers?.nzbgeek);
+                  const hasDrunkenslug = Boolean(arrStatus?.indexers?.drunkenslug);
+                  const hasSabnzbd = Boolean(arrStatus?.sabnzbd?.online || arrStatus?.sabnzbd?.configured);
+                  const hasAnyIndexer = hasAlthub || hasNzbgeek || hasDrunkenslug;
+
+                  if (!hasAnyIndexer && !hasSabnzbd) return null;
+
+                  return (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      {hasAnyIndexer && <span className="text-[10px] text-gray-400 font-medium">Indexers:</span>}
+                      {hasAlthub && (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-[10px] text-cyan-300 font-bold" title="AltHub Usenet Indexer (Active)">
+                          <AlthubIcon className="w-3 h-3 flex-shrink-0" />
+                          AltHub
+                        </span>
+                      )}
+                      {hasNzbgeek && (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-300 font-bold" title="NZBGeek Usenet Indexer (Active)">
+                          <NzbgeekIcon className="w-3 h-3 flex-shrink-0" />
+                          NZBGeek
+                        </span>
+                      )}
+                      {hasDrunkenslug && (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-lime-500/10 border border-lime-500/30 text-[10px] text-lime-300 font-bold" title="DrunkenSlug Usenet Indexer (Active)">
+                          <DrunkenslugIcon className="w-3 h-3 flex-shrink-0" />
+                          DrunkenSlug
+                        </span>
+                      )}
+                      {hasSabnzbd && (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-[10px] text-yellow-300 font-bold ml-auto" title="SABnzbd Usenet Downloader">
+                          <SabnzbdIcon className="w-3 h-3 flex-shrink-0" />
+                          SABnzbd
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Inline Settings Form */}
                 {showArrSettings && (
@@ -600,6 +623,51 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                             onChange={(e) => setArrSettingsForm({ ...arrSettingsForm, sonarr_api_key: e.target.value })}
                             className="w-full mt-1 bg-[#141414] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
                           />
+                        </div>
+                      </div>
+
+                      {/* Usenet Indexer API Keys */}
+                      <div className="pt-2 border-t border-white/10 space-y-2">
+                        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block">
+                          Usenet Indexer API Keys (Auto-Synced into Sonarr & Radarr)
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div>
+                            <label className="text-[10px] font-medium text-cyan-300 flex items-center gap-1">
+                              <AlthubIcon className="w-3 h-3" /> AltHub API Key
+                            </label>
+                            <input
+                              type="password"
+                              placeholder="AltHub Key"
+                              value={arrSettingsForm.althub_api_key || ''}
+                              onChange={(e) => setArrSettingsForm({ ...arrSettingsForm, althub_api_key: e.target.value })}
+                              className="w-full mt-1 bg-[#141414] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-medium text-amber-300 flex items-center gap-1">
+                              <NzbgeekIcon className="w-3 h-3" /> NZBGeek API Key
+                            </label>
+                            <input
+                              type="password"
+                              placeholder="NZBGeek Key"
+                              value={arrSettingsForm.nzbgeek_api_key || ''}
+                              onChange={(e) => setArrSettingsForm({ ...arrSettingsForm, nzbgeek_api_key: e.target.value })}
+                              className="w-full mt-1 bg-[#141414] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-medium text-lime-300 flex items-center gap-1">
+                              <DrunkenslugIcon className="w-3 h-3" /> DrunkenSlug Key
+                            </label>
+                            <input
+                              type="password"
+                              placeholder="DrunkenSlug Key"
+                              value={arrSettingsForm.drunkenslug_api_key || ''}
+                              onChange={(e) => setArrSettingsForm({ ...arrSettingsForm, drunkenslug_api_key: e.target.value })}
+                              className="w-full mt-1 bg-[#141414] border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>

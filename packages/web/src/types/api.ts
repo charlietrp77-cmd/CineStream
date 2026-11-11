@@ -198,6 +198,15 @@ export interface ArrStatus {
     version?: string;
     error?: string;
   };
+  indexers?: {
+    althub: boolean;
+    nzbgeek: boolean;
+    drunkenslug: boolean;
+  };
+  sabnzbd?: {
+    configured: boolean;
+    online: boolean;
+  };
 }
 
 export interface MatchedArrRelease {

@@ -3,6 +3,7 @@ import path from 'path';
 import { appSettings } from './appSettings';
 import { StreamBadges } from './aiostreams';
 import { bootstrapService } from './bootstrapService';
+import { config } from '../config';
 
 export interface ArrStatus {
   radarr: {
@@ -20,6 +21,15 @@ export interface ArrStatus {
     externalUrl?: string;
     version?: string;
     error?: string;
+  };
+  indexers: {
+    althub: boolean;
+    nzbgeek: boolean;
+    drunkenslug: boolean;
+  };
+  sabnzbd: {
+    configured: boolean;
+    online: boolean;
   };
 }
 
@@ -91,6 +101,22 @@ export class ArrService {
     const radarr = this.getRadarrConfig();
     const sonarr = this.getSonarrConfig();
 
+    const althubKey = Boolean(config.althubApiKey || appSettings.get('althub_api_key'));
+    const nzbgeekKey = Boolean(config.nzbgeekApiKey || appSettings.get('nzbgeek_api_key'));
+    const drunkenslugKey = Boolean(config.drunkenslugApiKey || appSettings.get('drunkenslug_api_key'));
+
+    const indexersStatus = {
+      althub: althubKey,
+      nzbgeek: nzbgeekKey,
+      drunkenslug: drunkenslugKey,
+    };
+
+    const sabKey = appSettings.get('sabnzbd_api_key') || process.env.SABNZBD_API_KEY || '';
+    const sabStatus = {
+      configured: Boolean(sabKey),
+      online: false,
+    };
+
     const status: ArrStatus = {
       radarr: {
         configured: radarr.isConfigured,
@@ -104,6 +130,8 @@ export class ArrService {
         url: sonarr.url,
         externalUrl: resolveExternalArrUrl(sonarr.url, clientHost, 8989),
       },
+      indexers: indexersStatus,
+      sabnzbd: sabStatus,
     };
 
     if (radarr.isConfigured) {
@@ -119,6 +147,28 @@ export class ArrService {
 
           // Auto-sync missing Newznab indexers (altHUB, NZBGeek, DrunkenSlug)
           bootstrapService.registerNewznabIndexers('radarr', radarr.url, radarr.key, [2000, 2030, 2040, 2045, 2060]).catch(() => {});
+
+          // Check live indexers configured in Radarr
+          try {
+            const idxRes = await undiciFetch(`${radarr.url}/api/v3/indexer`, {
+              headers: { 'X-Api-Key': radarr.key },
+              signal: AbortSignal.timeout(3000),
+            });
+            if (idxRes.ok) {
+              const idxList: any = await idxRes.json();
+              if (Array.isArray(idxList)) {
+                for (const idx of idxList) {
+                  const name = (idx.name || '').toLowerCase();
+                  const enabled = idx.enableAutomaticSearch || idx.enableInteractiveSearch || idx.enableRss;
+                  if (enabled) {
+                    if (name.includes('althub')) indexersStatus.althub = true;
+                    if (name.includes('geek')) indexersStatus.nzbgeek = true;
+                    if (name.includes('slug')) indexersStatus.drunkenslug = true;
+                  }
+                }
+              }
+            }
+          } catch (_) {}
         } else {
           status.radarr.error = `HTTP ${res.status}`;
         }
@@ -140,12 +190,46 @@ export class ArrService {
 
           // Auto-sync missing Newznab indexers (altHUB, NZBGeek, DrunkenSlug)
           bootstrapService.registerNewznabIndexers('sonarr', sonarr.url, sonarr.key, [5000, 5020, 5030, 5040, 5045]).catch(() => {});
+
+          // Check live indexers configured in Sonarr
+          try {
+            const idxRes = await undiciFetch(`${sonarr.url}/api/v3/indexer`, {
+              headers: { 'X-Api-Key': sonarr.key },
+              signal: AbortSignal.timeout(3000),
+            });
+            if (idxRes.ok) {
+              const idxList: any = await idxRes.json();
+              if (Array.isArray(idxList)) {
+                for (const idx of idxList) {
+                  const name = (idx.name || '').toLowerCase();
+                  const enabled = idx.enableAutomaticSearch || idx.enableInteractiveSearch || idx.enableRss;
+                  if (enabled) {
+                    if (name.includes('althub')) indexersStatus.althub = true;
+                    if (name.includes('geek')) indexersStatus.nzbgeek = true;
+                    if (name.includes('slug')) indexersStatus.drunkenslug = true;
+                  }
+                }
+              }
+            }
+          } catch (_) {}
         } else {
           status.sonarr.error = `HTTP ${res.status}`;
         }
       } catch (err: any) {
         status.sonarr.error = err.message || 'Connection failed';
       }
+    }
+
+    // Check SABnzbd health if configured
+    if (sabStatus.configured) {
+      try {
+        const sabRes = await undiciFetch(`http://sabnzbd:8080/api?mode=version&output=json&apikey=${sabKey}`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (sabRes.ok) {
+          sabStatus.online = true;
+        }
+      } catch (_) {}
     }
 
     return status;
