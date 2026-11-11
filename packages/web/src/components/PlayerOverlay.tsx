@@ -65,12 +65,13 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
   }, []);
 
   const [playerMode, setPlayerMode] = useState<'vlc_detecting' | 'vlc_active' | 'web_player'>(() => {
-    if (!isDesktopPc) return 'web_player';
     try {
       const saved = localStorage.getItem('cinestream_preferred_player');
+      if (saved === 'vlc') return 'vlc_detecting';
       if (saved === 'web') return 'web_player';
     } catch (_) {}
-    return 'vlc_detecting';
+    // Default to seamless Web Player with 4K HDR Remux Engine
+    return 'web_player';
   });
 
   const [isPlaying, setIsPlaying] = useState(true);
@@ -660,6 +661,11 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
                 {qualityBadge}
               </span>
             )}
+
+            <span className="hidden sm:flex items-center gap-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-xs font-semibold backdrop-blur-md" title="Lossless direct stream copy with multi-channel audio">
+              <Zap className="w-3.5 h-3.5 text-emerald-400" />
+              Remux Direct Stream
+            </span>
 
             <button
               onClick={copyStreamUrl}

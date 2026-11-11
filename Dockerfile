@@ -15,7 +15,7 @@ RUN npm run build --workspaces
 
 # Stage 2: Production Runtime
 FROM node:20-alpine AS runner
-RUN apk add --no-cache wget sqlite-libs
+RUN apk add --no-cache wget sqlite-libs ffmpeg
 WORKDIR /app
 
 COPY --from=builder /build/package.json ./

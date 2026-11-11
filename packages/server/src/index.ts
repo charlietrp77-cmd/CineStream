@@ -16,6 +16,7 @@ import { diagnosticsRoutes } from './routes/diagnostics';
 import { providerRoutes } from './routes/providerRoutes';
 import { arrRoutes } from './routes/arrRoutes';
 import { backupRoutes } from './routes/backupRoutes';
+import { remuxRoutes } from './routes/remuxRoutes';
 import { bootstrapService } from './services/bootstrapService';
 import { backupService } from './services/backupService';
 
@@ -72,6 +73,7 @@ async function bootstrap() {
   await fastify.register(providerRoutes);
   await fastify.register(arrRoutes);
   await fastify.register(backupRoutes);
+  await fastify.register(remuxRoutes);
 
   // Serve static frontend in production
   const webDistPath = path.resolve(__dirname, '../../web/dist');
