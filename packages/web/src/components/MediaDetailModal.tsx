@@ -937,12 +937,22 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     ? streams
     : streams.filter((s) => (s.badges.source || 'Debrid') === providerFilter);
 
+  const isDirectPlayable = (s: ResolvedStream) => {
+    if (s.badges.isNasCached) return true;
+    if (s.isDirectStream === false) return false;
+    if (s.nzbUrl && (s.badges.source === 'AltHub' || s.badges.source === 'NZBGeek' || s.badges.source === 'DrunkenSlug')) return false;
+    return true;
+  };
+
   const isBrowserLosslessAudio = (s: ResolvedStream) => Boolean(s.badges.trueHd || s.badges.dtsHd);
   const isNativeApp = Capacitor.isNativePlatform();
 
+  const playableStreams = filteredStreams.filter(isDirectPlayable);
+  const allPlayableStreams = streams.filter(isDirectPlayable);
+
   const bestStream = !isNativeApp
-    ? (filteredStreams.find((s) => !isBrowserLosslessAudio(s)) || filteredStreams[0] || streams[0])
-    : (filteredStreams[0] || streams[0]);
+    ? (playableStreams.find((s) => !isBrowserLosslessAudio(s)) || playableStreams[0] || allPlayableStreams[0] || filteredStreams[0] || streams[0])
+    : (playableStreams[0] || allPlayableStreams[0] || filteredStreams[0] || streams[0]);
 
   // Dynamically compute the best available quality string across resolved streams
   const dynamicQualityBadge = (() => {
@@ -965,6 +975,11 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
   const handlePlayBest = () => {
     if (bestStream) {
+      if (!isDirectPlayable(bestStream)) {
+        setNasSuccessMessage('⚠️ No direct streams found. Push an NZB release to download to NAS first.');
+        setTimeout(() => setNasSuccessMessage(null), 6000);
+        return;
+      }
       onPlayStream(bestStream, item.title, selectedEpisode?.title);
     }
   };
@@ -1633,14 +1648,30 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             )}
 
             <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-              {filteredStreams.map((stream) => (
+              {filteredStreams.map((stream) => {
+                const playable = isDirectPlayable(stream);
+                return (
                 <div
                   key={stream.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => onPlayStream(stream, item.title, selectedEpisode?.title)}
+                  onClick={() => {
+                    if (!playable) {
+                      setNasSuccessMessage('📰 Usenet NZB release: push to Sonarr/Radarr or SABnzbd to download to NAS before playing.');
+                      setTimeout(() => setNasSuccessMessage(null), 6000);
+                      return;
+                    }
+                    onPlayStream(stream, item.title, selectedEpisode?.title);
+                  }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') onPlayStream(stream, item.title, selectedEpisode?.title);
+                    if (e.key === 'Enter') {
+                      if (!playable) {
+                        setNasSuccessMessage('📰 Usenet NZB release: push to Sonarr/Radarr or SABnzbd to download to NAS before playing.');
+                        setTimeout(() => setNasSuccessMessage(null), 6000);
+                        return;
+                      }
+                      onPlayStream(stream, item.title, selectedEpisode?.title);
+                    }
                   }}
                   className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-white ${
                     stream.badges.isNasCached
@@ -1657,7 +1688,15 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           ⚡ Local Gigabit
                         </span>
                       )}
-                      {!isNativeApp && isBrowserLosslessAudio(stream) && (
+                      {!playable && (
+                        <span
+                          className="bg-blue-900/40 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded text-[10px] font-bold"
+                          title="Usenet NZB index descriptor for SABnzbd / Sonarr / Radarr (cannot be streamed live over HTTP)"
+                        >
+                          📰 NZB (Download Only)
+                        </span>
+                      )}
+                      {playable && !isNativeApp && isBrowserLosslessAudio(stream) && (
                         <span
                           className="bg-purple-900/40 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded text-[10px] font-bold"
                           title="Lossless TrueHD / DTS audio. Plays in VLC or on Android TV app."
@@ -1665,7 +1704,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           🎧 Lossless (VLC / TV)
                         </span>
                       )}
-                      {!isNativeApp && !isBrowserLosslessAudio(stream) && (
+                      {playable && !isNativeApp && !isBrowserLosslessAudio(stream) && (
                         <span
                           className="bg-emerald-900/40 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded text-[10px] font-bold"
                           title="Directly playable in desktop browser"
@@ -1813,19 +1852,33 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                       <Download className="w-3.5 h-3.5" />
                     </button>
 
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onPlayStream(stream, item.title, selectedEpisode?.title);
-                      }}
-                      className="bg-white/10 hover:bg-white text-white hover:text-black p-2 rounded-full transition-colors"
-                      title="Play stream"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                    </button>
+                    {playable ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPlayStream(stream, item.title, selectedEpisode?.title);
+                        }}
+                        className="bg-white/10 hover:bg-white text-white hover:text-black p-2 rounded-full transition-colors"
+                        title="Play stream"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleArrPush(stream);
+                        }}
+                        className="bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white p-2 rounded-full transition-colors border border-blue-500/30"
+                        title="Push Usenet NZB to Sonarr/Radarr / SABnzbd queue"
+                      >
+                        <FileDown className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

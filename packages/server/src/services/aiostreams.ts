@@ -54,6 +54,7 @@ export interface ResolvedStream {
   infoHash?: string;
   magnetUrl?: string;
   nzbUrl?: string;
+  isDirectStream?: boolean;
   rawReleaseTitle?: string;
 }
 
@@ -810,6 +811,23 @@ class AioStreamsService {
         nzbUrl = raw.url;
       }
 
+      // Detect if this is strictly an NZB file descriptor (not a direct HTTP video stream)
+      const isNzbOnly = Boolean(
+        nzbUrl && (
+          raw.url === nzbUrl ||
+          /\.nzb(\?|$)/i.test(raw.url) ||
+          /mode=getnzb/i.test(raw.url) ||
+          (raw.name && raw.name.includes('(NZB)')) ||
+          badges.source === 'AltHub' ||
+          badges.source === 'NZBGeek' ||
+          badges.source === 'DrunkenSlug'
+        )
+      );
+
+      // NZB files are indexer XML files, not video streams.
+      // Heavily penalize direct streaming score so playable video streams (Easynews, Debrid) always rank first.
+      const effectiveScore = isNzbOnly ? score - 5000 : score;
+
       // Construct stream proxy URL (relative so client always streams from its own origin)
       const urlBase64 = Buffer.from(raw.url).toString('base64url');
       const headersBase64 = headers ? Buffer.from(JSON.stringify(headers)).toString('base64url') : '';
@@ -824,10 +842,11 @@ class AioStreamsService {
         headers,
         bingeGroup: raw.behaviorHints?.bingeGroup,
         badges,
-        qualityScore: score,
+        qualityScore: effectiveScore,
         infoHash,
         magnetUrl,
         nzbUrl,
+        isDirectStream: !isNzbOnly,
         rawReleaseTitle: raw.behaviorHints?.filename || raw.title?.split('\n')[0] || raw.name || '',
       });
     }
