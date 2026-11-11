@@ -94,8 +94,10 @@ export const HeroBillboard: React.FC<HeroBillboardProps> = ({ item, onPlay, onMo
         {/* Action Buttons */}
         <div className="flex items-center gap-4 pt-2">
           <button
+            data-autofocus="true"
+            data-priority="high"
             onClick={() => onPlay(item)}
-            className="flex items-center gap-2 bg-white text-black hover:bg-white/90 active:scale-95 px-6 sm:px-8 py-2.5 sm:py-3 rounded font-bold text-sm sm:text-base shadow-xl transition-all"
+            className="flex items-center gap-2 bg-white text-black hover:bg-white/90 active:scale-95 px-6 sm:px-8 py-2.5 sm:py-3 rounded font-bold text-sm sm:text-base shadow-xl transition-all focus:outline-none focus:ring-4 focus:ring-red-600 focus:scale-105"
           >
             <Play className="w-5 h-5 fill-black" />
             <span>Play</span>
@@ -103,7 +105,7 @@ export const HeroBillboard: React.FC<HeroBillboardProps> = ({ item, onPlay, onMo
 
           <button
             onClick={() => onMoreInfo(item)}
-            className="flex items-center gap-2 bg-gray-600/60 hover:bg-gray-600/80 active:scale-95 backdrop-blur-md text-white px-5 sm:px-7 py-2.5 sm:py-3 rounded font-semibold text-sm sm:text-base transition-all"
+            className="flex items-center gap-2 bg-gray-600/60 hover:bg-gray-600/80 active:scale-95 backdrop-blur-md text-white px-5 sm:px-7 py-2.5 sm:py-3 rounded font-semibold text-sm sm:text-base transition-all focus:outline-none focus:ring-4 focus:ring-white focus:scale-105"
           >
             <Info className="w-5 h-5" />
             <span>More Info</span>

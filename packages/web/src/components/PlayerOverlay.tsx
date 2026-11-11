@@ -386,19 +386,36 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
 
   // Keyboard navigation (Living Room / Laptop D-pad / Hotkeys)
   useEffect(() => {
-    if (playerMode !== 'web_player') return;
-
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger shortcuts if user is typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
 
+      // Universal Back / Exit across all player modes
+      if (
+        e.key === 'Escape' ||
+        e.key === 'Backspace' ||
+        e.key === 'GoBack' ||
+        e.key === 'BrowserBack' ||
+        e.keyCode === 4 ||
+        e.keyCode === 8 ||
+        e.keyCode === 27 ||
+        e.keyCode === 461 ||
+        e.keyCode === 10009
+      ) {
+        e.preventDefault();
+        handleClose();
+        return;
+      }
+
+      if (playerMode !== 'web_player') return;
+
       wakeOsd();
       if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
         toggleFullscreen();
-      } else if (e.key === ' ' || e.key === 'k' || e.key === 'K') {
+      } else if (e.key === ' ' || e.key === 'Enter' || e.key === 'k' || e.key === 'K') {
         e.preventDefault();
         togglePlayPause();
       } else if (e.key === 'ArrowLeft') {
@@ -407,9 +424,6 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         seekRelative(10);
-      } else if (e.key === 'Escape' || e.key === 'Backspace') {
-        e.preventDefault();
-        handleClose();
       }
     };
 

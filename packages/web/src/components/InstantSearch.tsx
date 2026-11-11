@@ -110,13 +110,17 @@ export const InstantSearch: React.FC<InstantSearchProps> = ({ isOpen, onClose, o
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0a0a0a]/95 backdrop-blur-xl flex flex-col p-4 sm:p-12 overflow-y-auto select-none">
+    <div
+      data-focus-scope="true"
+      className="fixed inset-0 z-50 bg-[#0a0a0a]/95 backdrop-blur-xl flex flex-col p-4 sm:p-12 overflow-y-auto select-none"
+    >
       {/* Search Header */}
       <div className="flex items-center justify-between border-b border-white/10 pb-4 max-w-6xl mx-auto w-full gap-4">
         <div className="flex items-center gap-3 flex-1">
           <Search className="w-6 h-6 text-gray-400" />
           <input
             ref={inputRef}
+            data-autofocus="true"
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -128,14 +132,14 @@ export const InstantSearch: React.FC<InstantSearchProps> = ({ isOpen, onClose, o
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowTvKeyboard(!showTvKeyboard)}
-            className="hidden sm:block text-xs font-semibold px-3 py-1.5 rounded bg-white/10 text-gray-300 hover:text-white"
+            className="hidden sm:block text-xs font-semibold px-3 py-1.5 rounded bg-white/10 text-gray-300 hover:text-white focus:outline-none focus:ring-2 focus:ring-white"
           >
             {showTvKeyboard ? 'Hide On-Screen Keyboard' : 'TV On-Screen Keyboard'}
           </button>
 
           <button
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white"
+            className="p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-white"
           >
             <X className="w-6 h-6" />
           </button>
@@ -151,7 +155,7 @@ export const InstantSearch: React.FC<InstantSearchProps> = ({ isOpen, onClose, o
                 <button
                   key={k}
                   onClick={() => handleKeyPress(k)}
-                  className={`h-11 px-4 rounded bg-white/5 hover:bg-white/20 active:scale-95 font-bold text-sm text-white transition-all ${
+                  className={`h-11 px-4 rounded bg-white/5 hover:bg-white/20 active:scale-95 font-bold text-sm text-white transition-all focus:outline-none focus:ring-2 focus:ring-white focus:bg-white/30 ${
                     k === 'SPACE' ? 'flex-1' : k === 'BACKSPACE' ? 'w-24 text-red-400' : 'w-11'
                   }`}
                 >
@@ -177,13 +181,21 @@ export const InstantSearch: React.FC<InstantSearchProps> = ({ isOpen, onClose, o
           {results.map((item) => (
             <div
               key={item.imdbId || item.id}
+              role="button"
+              tabIndex={0}
               onClick={() => {
                 onSelect(item);
                 onClose();
               }}
-              className="group cursor-pointer space-y-1.5 transition-transform duration-200 hover:scale-105"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  onSelect(item);
+                  onClose();
+                }
+              }}
+              className="group cursor-pointer space-y-1.5 transition-transform duration-200 hover:scale-105 focus:scale-105 focus:outline-none"
             >
-              <div className="relative aspect-[2/3] rounded-md overflow-hidden bg-[#181818] border border-white/10 group-hover:border-white shadow-lg">
+              <div className="relative aspect-[2/3] rounded-md overflow-hidden bg-[#181818] border border-white/10 group-hover:border-white group-focus:border-white group-focus:ring-2 group-focus:ring-white shadow-lg">
                 {item.posterUrl ? (
                   <img
                     src={item.posterUrl}

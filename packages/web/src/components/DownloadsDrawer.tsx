@@ -276,7 +276,7 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
   const sonarrLink = getExternalArrUrl(arrStatus?.sonarr.url, arrStatus?.sonarr.externalUrl, 8989);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm select-none">
+    <div data-focus-scope="true" className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm select-none">
       <div className="w-full max-w-xl h-full bg-[#181818] border-l border-white/10 flex flex-col shadow-2xl text-white">
         {/* Drawer Header */}
         <div className="p-6 border-b border-white/10 flex items-center justify-between">
@@ -284,7 +284,10 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
             <HardDrive className="w-6 h-6 text-red-600" />
             <h2 className="text-xl font-bold">Storage & Downloads</h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded-full hover:bg-white/10 text-gray-400 hover:text-white">
+          <button
+            onClick={onClose}
+            className="p-1 rounded-full hover:bg-white/10 text-gray-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-white"
+          >
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -357,8 +360,9 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
         {/* Tab Selector */}
         <div className="flex border-b border-white/10">
           <button
+            data-autofocus={activeTab === 'nas' ? 'true' : undefined}
             onClick={() => setActiveTab('nas')}
-            className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-all ${
+            className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-all focus:outline-none focus:ring-2 focus:ring-red-600 ${
               activeTab === 'nas'
                 ? 'border-red-600 text-white bg-white/5'
                 : 'border-transparent text-gray-400 hover:text-gray-200'
@@ -368,8 +372,9 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
             <span>NAS Cache ({nasJobs.length})</span>
           </button>
           <button
+            data-autofocus={activeTab === 'device' ? 'true' : undefined}
             onClick={() => setActiveTab('device')}
-            className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-all ${
+            className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-all focus:outline-none focus:ring-2 focus:ring-red-600 ${
               activeTab === 'device'
                 ? 'border-red-600 text-white bg-white/5'
                 : 'border-transparent text-gray-400 hover:text-gray-200'

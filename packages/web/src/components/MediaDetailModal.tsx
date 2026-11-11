@@ -970,12 +970,15 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-6 overflow-y-auto">
+    <div
+      data-focus-scope="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-6 overflow-y-auto"
+    >
       <div className="relative w-full max-w-4xl bg-[#181818] rounded-xl overflow-hidden shadow-2xl border border-white/10 my-auto text-white">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-30 bg-black/70 hover:bg-black p-2 rounded-full text-white/80 hover:text-white transition-all shadow-lg"
+          className="absolute top-4 right-4 z-30 bg-black/70 hover:bg-black p-2 rounded-full text-white/80 hover:text-white transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-white"
         >
           <X className="w-5 h-5" />
         </button>
@@ -1063,9 +1066,11 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           {/* Action Buttons Bar */}
           <div className="flex flex-wrap items-center gap-3">
             <button
+              data-autofocus="true"
+              data-priority="high"
               onClick={handlePlayBest}
               disabled={loadingStreams || streams.length === 0}
-              className="flex items-center gap-2 bg-white text-black hover:bg-white/90 disabled:opacity-50 px-6 py-2.5 rounded font-bold text-sm shadow transition-all"
+              className="flex items-center gap-2 bg-white text-black hover:bg-white/90 disabled:opacity-50 px-6 py-2.5 rounded font-bold text-sm shadow transition-all focus:outline-none focus:ring-4 focus:ring-red-600 focus:scale-105"
             >
               <Play className="w-4 h-4 fill-black" />
               <span>
@@ -1402,11 +1407,19 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   return (
                     <div
                       key={ep.episodeNumber}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => {
                         setSelectedEpisode(ep);
                         loadStreams(selectedSeason, ep.episodeNumber, currentImdbId);
                       }}
-                      className={`flex gap-3 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          setSelectedEpisode(ep);
+                          loadStreams(selectedSeason, ep.episodeNumber, currentImdbId);
+                        }
+                      }}
+                      className={`flex gap-3 p-2.5 rounded-lg border cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-white ${
                         isSelected
                           ? 'bg-white/15 border-white'
                           : 'bg-white/5 border-transparent hover:bg-white/10'
@@ -1623,8 +1636,13 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               {filteredStreams.map((stream) => (
                 <div
                   key={stream.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onPlayStream(stream, item.title, selectedEpisode?.title)}
-                  className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') onPlayStream(stream, item.title, selectedEpisode?.title);
+                  }}
+                  className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-white ${
                     stream.badges.isNasCached
                       ? 'bg-amber-500/10 border-amber-500/40 hover:bg-amber-500/20'
                       : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Lock, Plus, Edit2, ShieldAlert, Check, X } from 'lucide-react';
 import { Profile, AvatarPreset } from '../types/api';
 import { useProfileStore } from '../store/useProfileStore';
-import { useFocusable } from '../hooks/useSpatialNav';
 
 export const ProfileGate: React.FC = () => {
   const { profiles, fetchProfiles, selectProfile, verifyPin, createProfile, updateProfile, deleteProfile } =
@@ -34,6 +33,27 @@ export const ProfileGate: React.FC = () => {
       .then((data) => setAvatars(data))
       .catch(() => {});
   }, []);
+
+  // Direct keyboard entry for PIN (Laptop numbers or Remote numpad)
+  useEffect(() => {
+    if (!selectedProfileForPin) return;
+
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        handlePinInput(e.key);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handlePinBackspace();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setSelectedProfileForPin(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [selectedProfileForPin, pinDigits]);
 
   const handleProfileClick = (p: Profile) => {
     if (isManaging) {
@@ -118,7 +138,10 @@ export const ProfileGate: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#141414] text-white select-none px-4">
+    <div
+      data-focus-scope="true"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#141414] text-white select-none px-4"
+    >
       {/* Title */}
       <h1 className="text-4xl sm:text-5xl font-medium tracking-wide mb-10 transition-all">
         {isManaging ? 'Manage Profiles' : "Who's Watching?"}
@@ -126,19 +149,25 @@ export const ProfileGate: React.FC = () => {
 
       {/* Profile Row */}
       <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-10 max-w-5xl">
-        {profiles.map((profile) => (
+        {profiles.map((profile, idx) => (
           <div
             key={profile.id}
+            role="button"
+            tabIndex={0}
+            data-autofocus={idx === 0 ? 'true' : undefined}
             onClick={() => handleProfileClick(profile)}
-            className="group flex flex-col items-center cursor-pointer transition-transform duration-200 hover:scale-105 focus:scale-105"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleProfileClick(profile);
+            }}
+            className="group flex flex-col items-center cursor-pointer transition-transform duration-200 hover:scale-105 focus:scale-105 focus:outline-none"
           >
             <div
               className={`relative w-28 h-28 sm:w-36 sm:h-36 rounded-md bg-gradient-to-br ${getAvatarGradient(
                 profile.avatarId
               )} flex items-center justify-center border-2 ${
                 isManaging
-                  ? 'border-white/50 group-hover:border-white'
-                  : 'border-transparent group-hover:border-white'
+                  ? 'border-white/50 group-hover:border-white group-focus:border-white'
+                  : 'border-transparent group-hover:border-white group-focus:border-white'
               } shadow-2xl transition-all overflow-hidden`}
             >
               {/* Initials / Avatar Icon */}
@@ -177,6 +206,8 @@ export const ProfileGate: React.FC = () => {
         {/* Add Profile Button */}
         {profiles.length < 5 && (
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => {
               setIsCreating(true);
               setFormName('');
@@ -188,7 +219,20 @@ export const ProfileGate: React.FC = () => {
               setFormNasQuality('2160p');
               setFormAioConfig('');
             }}
-            className="group flex flex-col items-center cursor-pointer transition-transform duration-200 hover:scale-105"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                setIsCreating(true);
+                setFormName('');
+                setFormAvatar('sapphire-depths');
+                setFormIsKids(false);
+                setFormPin('');
+                setFormAudio('eng');
+                setFormSubtitle('eng');
+                setFormNasQuality('2160p');
+                setFormAioConfig('');
+              }
+            }}
+            className="group flex flex-col items-center cursor-pointer transition-transform duration-200 hover:scale-105 focus:scale-105 focus:outline-none"
           >
             <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-md border-2 border-dashed border-gray-600 group-hover:border-white flex items-center justify-center transition-all bg-[#181818]">
               <Plus className="w-12 h-12 text-gray-500 group-hover:text-white transition-colors" />

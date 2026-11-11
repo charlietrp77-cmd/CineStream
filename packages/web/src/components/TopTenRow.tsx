@@ -33,9 +33,14 @@ const TopTenCard: React.FC<{
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(item)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onSelect(item);
+      }}
       {...prefetchProps}
-      className="relative flex-none w-44 sm:w-56 h-64 sm:h-80 cursor-pointer group select-none transition-transform duration-300 hover:scale-105"
+      className="relative flex-none w-44 sm:w-56 h-64 sm:h-80 cursor-pointer group select-none transition-transform duration-300 hover:scale-105 focus:outline-none focus:scale-105"
     >
       {/* Giant Metallic Rank Number */}
       <svg
@@ -59,7 +64,7 @@ const TopTenCard: React.FC<{
       </svg>
 
       {/* Poster */}
-      <div className="absolute right-0 bottom-0 w-32 sm:w-40 h-48 sm:h-60 rounded-md overflow-hidden bg-[#181818] z-10 shadow-2xl border border-white/10 group-hover:border-white transition-all">
+      <div className="absolute right-0 bottom-0 w-32 sm:w-40 h-48 sm:h-60 rounded-md overflow-hidden bg-[#181818] z-10 shadow-2xl border border-white/10 group-hover:border-white group-focus:border-white group-focus:ring-2 group-focus:ring-white transition-all">
         {item.posterUrl ? (
           <img
             src={item.posterUrl}

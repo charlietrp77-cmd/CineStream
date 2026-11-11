@@ -36,9 +36,14 @@ const PosterCard: React.FC<{
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(item)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onSelect(item);
+      }}
       {...prefetchProps}
-      className="relative flex-none w-36 sm:w-48 h-56 sm:h-72 rounded-md overflow-hidden bg-[#181818] cursor-pointer group select-none border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105"
+      className="relative flex-none w-36 sm:w-48 h-56 sm:h-72 rounded-md overflow-hidden bg-[#181818] cursor-pointer group select-none border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105 focus:outline-none focus:scale-105"
     >
       {/* Poster Image */}
       {item.posterUrl ? (

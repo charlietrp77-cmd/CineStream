@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Play, Sparkles, Film, Tv, Plus, Zap, RefreshCw, Clock } from 'lucide-react';
-import { useSpatialNavInit } from './hooks/useSpatialNav';
+import { useSpatialNavInit, registerBackHandler } from './hooks/useSpatialNav';
 import { useProfileStore } from './store/useProfileStore';
 import { useOfflineStore } from './store/useOfflineStore';
 import { CatalogItem, NasCacheItem, OfflineMediaItem, ResolvedStream, WatchProgress } from './types/api';
@@ -59,6 +59,36 @@ export const App: React.FC = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isDownloadsOpen, setIsDownloadsOpen] = useState(false);
   const [playerState, setPlayerState] = useState<ActivePlayerState | null>(null);
+
+  // Global TV Remote / Keyboard Back Hierarchy (Player > MediaDetail > Search > Downloads > Tabs)
+  useEffect(() => {
+    return registerBackHandler({
+      priority: 50,
+      handleBack: () => {
+        if (playerState) {
+          setPlayerState(null);
+          return true;
+        }
+        if (selectedModalItem) {
+          setSelectedModalItem(null);
+          return true;
+        }
+        if (isSearchOpen) {
+          setIsSearchOpen(false);
+          return true;
+        }
+        if (isDownloadsOpen) {
+          setIsDownloadsOpen(false);
+          return true;
+        }
+        if (activeTab !== 'home') {
+          setActiveTab('home');
+          return true;
+        }
+        return false;
+      },
+    });
+  }, [playerState, selectedModalItem, isSearchOpen, isDownloadsOpen, activeTab]);
 
   // Fetch catalog when active profile or top 10 filters change
   useEffect(() => {
@@ -706,8 +736,13 @@ export const App: React.FC = () => {
                           return (
                             <div
                               key={item.imdbId || item.id}
+                              role="button"
+                              tabIndex={0}
                               onClick={() => setSelectedModalItem(item)}
-                              className="group relative rounded-lg overflow-hidden bg-[#181818] aspect-[2/3] cursor-pointer border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') setSelectedModalItem(item);
+                              }}
+                              className="group relative rounded-lg overflow-hidden bg-[#181818] aspect-[2/3] cursor-pointer border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105 focus:scale-105 focus:outline-none"
                             >
                               {item.posterUrl ? (
                                 <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
@@ -786,8 +821,13 @@ export const App: React.FC = () => {
                       return (
                         <div
                           key={item.imdbId || item.id}
+                          role="button"
+                          tabIndex={0}
                           onClick={() => setSelectedModalItem(item)}
-                          className="group relative rounded-lg overflow-hidden bg-[#181818] aspect-[2/3] cursor-pointer border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') setSelectedModalItem(item);
+                          }}
+                          className="group relative rounded-lg overflow-hidden bg-[#181818] aspect-[2/3] cursor-pointer border border-white/5 hover:border-white shadow-xl transition-all duration-300 hover:scale-105 focus:scale-105 focus:outline-none"
                         >
                           {item.posterUrl ? (
                             <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" loading="lazy" />

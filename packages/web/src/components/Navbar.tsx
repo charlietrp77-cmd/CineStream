@@ -97,17 +97,17 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="flex items-center justify-between w-full">
         {/* Left: Brand + Navigation links */}
         <div className="flex items-center gap-6 sm:gap-10">
-          <div
+          <button
             onClick={() => onSelectTab('home')}
-            className="cursor-pointer text-red-600 font-black tracking-tighter text-2xl sm:text-3xl select-none"
+            className="cursor-pointer text-red-600 font-black tracking-tighter text-2xl sm:text-3xl select-none focus:outline-none focus:ring-2 focus:ring-red-600 rounded px-1"
           >
             CINESTREAM
-          </div>
+          </button>
 
           <div className="hidden md:flex items-center gap-6 text-sm font-medium">
             <button
               onClick={() => onSelectTab('home')}
-              className={`transition-all py-1 border-b-2 ${
+              className={`transition-all py-1 px-2.5 rounded border-b-2 focus:outline-none focus:ring-2 focus:ring-white ${
                 activeTab === 'home' ? 'text-white font-bold border-red-600' : 'text-gray-300 hover:text-white border-transparent'
               }`}
             >
@@ -115,7 +115,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
             <button
               onClick={() => onSelectTab('new')}
-              className={`transition-all py-1 border-b-2 ${
+              className={`transition-all py-1 px-2.5 rounded border-b-2 focus:outline-none focus:ring-2 focus:ring-white ${
                 activeTab === 'new' ? 'text-white font-bold border-red-600' : 'text-gray-300 hover:text-white border-transparent'
               }`}
             >
@@ -123,7 +123,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
             <button
               onClick={() => onSelectTab('mylist')}
-              className={`transition-all py-1 border-b-2 ${
+              className={`transition-all py-1 px-2.5 rounded border-b-2 focus:outline-none focus:ring-2 focus:ring-white ${
                 activeTab === 'mylist' ? 'text-white font-bold border-red-600' : 'text-gray-300 hover:text-white border-transparent'
               }`}
             >
@@ -136,15 +136,15 @@ export const Navbar: React.FC<NavbarProps> = ({
         {providerQuotas.length > 0 && (
           <div className="hidden sm:flex items-center gap-2 bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 shadow-inner">
             {providerQuotas.map((q) => (
-              <div
+              <button
                 key={q.provider}
                 onClick={onOpenDownloads}
-                className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-white/10 transition-colors select-none"
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white transition-colors select-none"
                 title={`${q.name}: ${q.remainingGbText} remaining${q.plan ? ` (${q.plan})` : ''} - Click to open storage details`}
               >
                 <ProviderQuotaIcon provider={q.provider} />
                 <span className="text-[11px] font-bold text-gray-200">{q.remainingGbText}</span>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -155,7 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {isOfflineMode && (
             <button
               onClick={toggleOfflineMode}
-              className="flex items-center gap-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-1 rounded-full text-xs font-semibold animate-pulse"
+              className="flex items-center gap-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-1 rounded-full text-xs font-semibold animate-pulse focus:outline-none focus:ring-2 focus:ring-amber-400"
             >
               <WifiOff className="w-3.5 h-3.5" />
               <span>Offline Mode</span>
@@ -165,7 +165,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Search Trigger */}
           <button
             onClick={onOpenSearch}
-            className="text-gray-300 hover:text-white p-1 rounded-full transition-colors"
+            className="text-gray-300 hover:text-white p-1 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-white"
             title="Search movies & series"
           >
             <Search className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -174,7 +174,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Downloads & NAS Cache Drawer Trigger */}
           <button
             onClick={onOpenDownloads}
-            className={`relative p-1 rounded-full transition-colors ${
+            className={`relative p-1 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-white ${
               activeDownloadsCount > 0
                 ? 'text-amber-400 hover:text-amber-300'
                 : 'text-gray-300 hover:text-white'
@@ -192,15 +192,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Active Profile Pill / Dropdown */}
           {activeProfile && (
             <div className="relative">
-              <div
+              <button
                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                className="flex items-center gap-2 cursor-pointer group"
+                className="flex items-center gap-2 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-white rounded-md p-0.5"
               >
                 <div className="w-8 h-8 rounded bg-gradient-to-br from-red-600 to-rose-950 flex items-center justify-center text-sm font-bold shadow group-hover:ring-2 group-hover:ring-white transition-all">
                   {activeProfile.name.charAt(0).toUpperCase()}
                 </div>
                 <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-white transition-transform" />
-              </div>
+              </button>
 
               {isProfileMenuOpen && (
                 <div

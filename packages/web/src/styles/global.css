@@ -69,3 +69,22 @@ html.video-playing header {
   background: #555555;
 }
 
+/* TV D-Pad & Spatial Focus Highlights */
+:focus-visible,
+[data-focused="true"] {
+  outline: 3px solid #ffffff !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.7), 0 0 40px rgba(220, 38, 38, 0.4) !important;
+  transform: scale(1.04);
+  transition: transform 0.15s ease-out, outline 0.15s ease-out;
+  z-index: 30 !important;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
