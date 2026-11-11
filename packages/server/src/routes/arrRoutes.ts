@@ -37,9 +37,12 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
     if (body.radarr_api_key !== undefined) appSettings.set('radarr_api_key', body.radarr_api_key);
     if (body.sonarr_url !== undefined) appSettings.set('sonarr_url', body.sonarr_url);
     if (body.sonarr_api_key !== undefined) appSettings.set('sonarr_api_key', body.sonarr_api_key);
+    let sabSync: any = null;
     if (body.sabnzbd_api_key !== undefined) {
-      appSettings.set('sabnzbd_api_key', body.sabnzbd_api_key);
-      bootstrapService.syncSabnzbdClients(body.sabnzbd_api_key).catch(() => {});
+      appSettings.set('sabnzbd_api_key', body.sabnzbd_api_key.trim());
+      sabSync = await bootstrapService.syncSabnzbdClients(body.sabnzbd_api_key.trim());
+    } else {
+      sabSync = await bootstrapService.syncSabnzbdClients();
     }
     if (body.auto_cache_episodes_ahead !== undefined) {
       appSettings.set('auto_cache_episodes_ahead', String(Math.max(0, parseInt(String(body.auto_cache_episodes_ahead), 10) || 0)));
@@ -59,7 +62,7 @@ export async function arrRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
 
     const updated = appSettings.getAll();
     const status = await arrService.getStatus();
-    return reply.send({ settings: updated, status });
+    return reply.send({ settings: updated, status, sabSync });
   });
 
   // Force sync configured Newznab indexers & SABnzbd downloader into Radarr & Sonarr

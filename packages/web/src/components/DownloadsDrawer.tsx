@@ -141,11 +141,17 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
       if (res.ok) {
         const data = await res.json();
         setArrStatus(data.status);
-        setArrSaveMessage('Settings saved & verified!');
+        if (data.sabSync?.verified) {
+          setArrSaveMessage('Settings saved! SABnzbd verified & linked to Radarr & Sonarr.');
+        } else if (data.sabSync?.radarr || data.sabSync?.sonarr) {
+          setArrSaveMessage('Settings saved! SABnzbd synced to Arr clients.');
+        } else {
+          setArrSaveMessage('Settings saved. (Verify SABnzbd API key if downloader warning persists)');
+        }
         setTimeout(() => {
           setArrSaveMessage(null);
           setShowArrSettings(false);
-        }, 2000);
+        }, 2500);
       } else {
         setArrSaveMessage('Failed to save settings.');
       }
@@ -162,7 +168,14 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
     try {
       const res = await fetch('/api/arr/sync-indexers', { method: 'POST' });
       if (res.ok) {
-        setSyncIndexersMessage('Indexers & SABnzbd synced into Radarr & Sonarr!');
+        const data = await res.json();
+        const sab = data.results?.sabnzbd;
+        const sabNote = sab?.verified
+          ? 'SABnzbd verified & synced!'
+          : sab?.radarr || sab?.sonarr
+          ? 'SABnzbd synced to Arr!'
+          : 'Check SABnzbd API key in settings.';
+        setSyncIndexersMessage(`Synced: ${sabNote}`);
         await fetchArrStatus();
       } else {
         setSyncIndexersMessage('Indexer sync failed.');

@@ -46,6 +46,38 @@ ${allowedHosts ? `  <AllowedHosts>${allowedHosts}</AllowedHosts>\n` : ''}</Confi
 `;
 }
 
+function buildSabnzbdFields(schemaFields: any[] | undefined, sabKey: string, category: string): any[] {
+  if (Array.isArray(schemaFields) && schemaFields.length > 0) {
+    return schemaFields.map((f: any) => {
+      const n = (f.name || '').toLowerCase();
+      if (n === 'host') return { ...f, value: 'sabnzbd' };
+      if (n === 'port') return { ...f, value: 8080 };
+      if (n === 'apikey') return { ...f, value: sabKey };
+      if (n === 'usessl') return { ...f, value: false };
+      if (n === 'urlbase') return { ...f, value: '' };
+      if (n === 'username') return { ...f, value: '' };
+      if (n === 'password') return { ...f, value: '' };
+      if (n === 'category' || n === 'tvcategory' || n === 'moviecategory') return { ...f, value: category };
+      if (n === 'recentpriority' || n === 'recenttvpriority' || n === 'recentmoviepriority') return { ...f, value: 0 };
+      if (n === 'olderpriority') return { ...f, value: 0 };
+      return f;
+    });
+  }
+
+  return [
+    { name: 'host', value: 'sabnzbd' },
+    { name: 'port', value: 8080 },
+    { name: 'apiKey', value: sabKey },
+    { name: 'useSsl', value: false },
+    { name: 'urlBase', value: '' },
+    { name: 'username', value: '' },
+    { name: 'password', value: '' },
+    { name: 'category', value: category },
+    { name: 'recentPriority', value: 0 },
+    { name: 'olderPriority', value: 0 },
+  ];
+}
+
 export class BootstrapService {
   private radarrConfigDir = process.env.RADARR_CONFIG_DIR || '/arr_configs/radarr';
   private sonarrConfigDir = process.env.SONARR_CONFIG_DIR || '/arr_configs/sonarr';
@@ -207,16 +239,20 @@ export class BootstrapService {
     return appSettings.get('sabnzbd_api_key') || process.env.SABNZBD_API_KEY || null;
   }
 
-  public async getVerifiedSabnzbdApiKey(candidate?: string): Promise<string | null> {
+  public async getVerifiedSabnzbdApiKey(candidate?: string): Promise<{ key: string; verified: boolean; online: boolean }> {
     const list: string[] = [];
-    if (candidate) list.push(candidate.trim());
+    if (candidate && candidate.trim()) list.push(candidate.trim());
 
-    // 1. Check sabnzbd.ini directly for both api_key and nzb_key
+    // 1. Check sabnzbd.ini directly for all 32-character hexadecimal strings & config keys
     try {
       const iniPath = path.join(this.sabnzbdConfigDir, 'sabnzbd.ini');
       this.ensureFilePermissions(iniPath);
       if (fs.existsSync(iniPath)) {
         const content = fs.readFileSync(iniPath, 'utf8');
+        const hexes = content.match(/\b[a-fA-F0-9]{32}\b/g);
+        if (hexes) {
+          list.push(...hexes);
+        }
         const m = content.match(/(?:^|\n)[ \t]*api_key[ \t]*=[ \t]*["']?([a-zA-Z0-9]+)["']?/i);
         if (m && m[1]) list.push(m[1].trim());
         const n = content.match(/(?:^|\n)[ \t]*nzb_key[ \t]*=[ \t]*["']?([a-zA-Z0-9]+)["']?/i);
@@ -226,32 +262,43 @@ export class BootstrapService {
 
     // 2. Check appSettings
     const saved = appSettings.get('sabnzbd_api_key');
-    if (saved) list.push(saved.trim());
+    if (saved && saved.trim()) list.push(saved.trim());
 
     // 3. Check env
     if (process.env.SABNZBD_API_KEY) list.push(process.env.SABNZBD_API_KEY.trim());
 
     const uniqueKeys = Array.from(new Set(list.filter(Boolean)));
+    let sabnzbdOnline = false;
 
     for (const key of uniqueKeys) {
       try {
         const res = await undiciFetch(`http://sabnzbd:8080/api?mode=version&output=json&apikey=${key}`, {
-          signal: AbortSignal.timeout(2000),
+          signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {
+          sabnzbdOnline = true;
           const json: any = await res.json();
           if (json && json.version && json.status !== false) {
             if (appSettings.get('sabnzbd_api_key') !== key) {
               appSettings.set('sabnzbd_api_key', key);
               console.log(`[Bootstrap] Successfully verified live SABnzbd API key (${key.substring(0, 4)}...)`);
             }
-            return key;
+            return { key, verified: true, online: true };
           }
         }
       } catch (_) {}
     }
 
-    return uniqueKeys[0] || null;
+    if (!sabnzbdOnline) {
+      try {
+        const ping = await undiciFetch('http://sabnzbd:8080/api?mode=version&output=json', {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (ping.ok) sabnzbdOnline = true;
+      } catch (_) {}
+    }
+
+    return { key: uniqueKeys[0] || '', verified: false, online: sabnzbdOnline };
   }
 
   public syncArrApiKey(target: 'radarr' | 'sonarr'): string | null {
@@ -455,7 +502,7 @@ priority = 0
     serviceUrl: string,
     apiKey: string,
     sabKey: string
-  ): Promise<boolean> {
+  ): Promise<{ synced: boolean; message: string }> {
     const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
     const targetCategory = target === 'sonarr' ? 'tv' : 'movies';
     try {
@@ -464,8 +511,9 @@ priority = 0
         signal: AbortSignal.timeout(5000),
       });
       if (!dcRes.ok) {
-        console.warn(`[Bootstrap] Unable to fetch ${target} download clients: HTTP ${dcRes.status}`);
-        return false;
+        const msg = `Unable to fetch ${target} download clients: HTTP ${dcRes.status}`;
+        console.warn(`[Bootstrap] ${msg}`);
+        return { synced: false, message: msg };
       }
 
       const clients: any = await dcRes.json();
@@ -474,54 +522,21 @@ priority = 0
       );
 
       if (existingSab) {
-        let needsUpdate = false;
-        if (!existingSab.enable) {
-          existingSab.enable = true;
-          needsUpdate = true;
-        }
+        existingSab.enable = true;
+        existingSab.fields = buildSabnzbdFields(existingSab.fields, sabKey, targetCategory);
 
-        const apiKeyField = existingSab.fields?.find((f: any) => f.name?.toLowerCase() === 'apikey');
-        if (apiKeyField && apiKeyField.value !== sabKey) {
-          apiKeyField.value = sabKey;
-          needsUpdate = true;
+        const updateRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient/${existingSab.id}?forceSave=true`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(existingSab),
+        });
+        if (updateRes.ok) {
+          console.log(`[Bootstrap] Successfully updated ${target} SABnzbd client with verified API key`);
+          return { synced: true, message: 'Updated existing SABnzbd client' };
+        } else {
+          const errText = await updateRes.text();
+          console.warn(`[Bootstrap] Failed to update ${target} SABnzbd client: HTTP ${updateRes.status}`, errText);
         }
-
-        const hostField = existingSab.fields?.find((f: any) => f.name?.toLowerCase() === 'host');
-        if (hostField && hostField.value !== 'sabnzbd') {
-          hostField.value = 'sabnzbd';
-          needsUpdate = true;
-        }
-
-        const portField = existingSab.fields?.find((f: any) => f.name?.toLowerCase() === 'port');
-        if (portField && Number(portField.value) !== 8080) {
-          portField.value = 8080;
-          needsUpdate = true;
-        }
-
-        const catField = existingSab.fields?.find((f: any) =>
-          ['category', 'tvcategory', 'moviecategory'].includes(f.name?.toLowerCase())
-        );
-        if (catField && catField.value !== targetCategory) {
-          catField.value = targetCategory;
-          needsUpdate = true;
-        }
-
-        if (needsUpdate) {
-          const updateRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient/${existingSab.id}?forceSave=true`, {
-            method: 'PUT',
-            headers,
-            body: JSON.stringify(existingSab),
-          });
-          if (updateRes.ok) {
-            console.log(`[Bootstrap] Successfully updated ${target} SABnzbd client with verified API key`);
-            return true;
-          } else {
-            const errText = await updateRes.text();
-            console.warn(`[Bootstrap] Failed to update ${target} SABnzbd client: HTTP ${updateRes.status}`, errText);
-            return false;
-          }
-        }
-        return true;
       }
 
       // Query downloadclient schema to dynamically mirror exact field formats for Sonarr/Radarr version
@@ -545,35 +560,7 @@ priority = 0
         console.warn(`[Bootstrap] Schema fetch for ${target} downloadclient skipped:`, err.message);
       }
 
-      let fields: Array<{ name: string; value: any }> = [];
-      if (sabSchema && Array.isArray(sabSchema.fields)) {
-        fields = sabSchema.fields.map((f: any) => {
-          const n = (f.name || '').toLowerCase();
-          if (n === 'host') return { ...f, value: 'sabnzbd' };
-          if (n === 'port') return { ...f, value: 8080 };
-          if (n === 'apikey') return { ...f, value: sabKey };
-          if (n === 'usessl') return { ...f, value: false };
-          if (n === 'urlbase') return { ...f, value: '' };
-          if (n === 'category' || n === 'tvcategory' || n === 'moviecategory') return { ...f, value: targetCategory };
-          if (n === 'recentpriority' || n === 'recenttvpriority' || n === 'recentmoviepriority') return { ...f, value: 0 };
-          if (n === 'olderpriority') return { ...f, value: 0 };
-          return f;
-        });
-      } else {
-        fields = [
-          { name: 'host', value: 'sabnzbd' },
-          { name: 'port', value: 8080 },
-          { name: 'apiKey', value: sabKey },
-          { name: 'useSsl', value: false },
-          { name: 'urlBase', value: '' },
-          { name: 'category', value: targetCategory },
-          { name: target === 'sonarr' ? 'tvCategory' : 'movieCategory', value: targetCategory },
-          { name: 'recentPriority', value: 0 },
-          { name: 'olderPriority', value: 0 },
-        ];
-      }
-
-      const payload = {
+      const payload: any = {
         ...(sabSchema || {}),
         name: 'SABnzbd',
         enable: true,
@@ -581,8 +568,9 @@ priority = 0
         priority: 1,
         implementation: 'Sabnzbd',
         configContract: 'SabnzbdSettings',
-        fields,
+        fields: buildSabnzbdFields(sabSchema?.fields, sabKey, targetCategory),
       };
+      delete payload.id;
 
       const addRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient?forceSave=true`, {
         method: 'POST',
@@ -592,23 +580,39 @@ priority = 0
 
       if (addRes.ok) {
         console.log(`[Bootstrap] Successfully registered new SABnzbd client in ${target}`);
-        return true;
+        return { synced: true, message: 'Created new SABnzbd client' };
       } else {
         const errText = await addRes.text();
         console.warn(`[Bootstrap] Failed to register SABnzbd client in ${target}: HTTP ${addRes.status}`, errText);
-        return false;
+        return { synced: false, message: `HTTP ${addRes.status}: ${errText}` };
       }
     } catch (err: any) {
       console.warn(`[Bootstrap] Error syncing ${target} SABnzbd client:`, err.message);
-      return false;
+      return { synced: false, message: err.message };
     }
   }
 
-  public async syncSabnzbdClients(overrideKey?: string): Promise<{ radarr: boolean; sonarr: boolean }> {
-    const sabKey = await this.getVerifiedSabnzbdApiKey(overrideKey);
+  public async syncSabnzbdClients(overrideKey?: string): Promise<{
+    radarr: boolean;
+    sonarr: boolean;
+    verified: boolean;
+    key: string;
+    radarrMessage?: string;
+    sonarrMessage?: string;
+  }> {
+    const verifiedResult = await this.getVerifiedSabnzbdApiKey(overrideKey);
+    const sabKey = verifiedResult.key;
+
     if (!sabKey) {
       console.warn('[Bootstrap] No valid SABnzbd API key could be discovered or verified');
-      return { radarr: false, sonarr: false };
+      return {
+        radarr: false,
+        sonarr: false,
+        verified: false,
+        key: '',
+        radarrMessage: 'No SABnzbd API key found',
+        sonarrMessage: 'No SABnzbd API key found',
+      };
     }
 
     const radarrKey = this.syncArrApiKey('radarr') || config.radarrApiKey;
@@ -616,18 +620,25 @@ priority = 0
     const radarrUrl = appSettings.get('radarr_url') || 'http://radarr:7878';
     const sonarrUrl = appSettings.get('sonarr_url') || 'http://sonarr:8989';
 
-    let radarrSynced = false;
-    let sonarrSynced = false;
+    let radarrRes = { synced: false, message: 'Radarr API key not configured' };
+    let sonarrRes = { synced: false, message: 'Sonarr API key not configured' };
 
     if (radarrKey) {
-      radarrSynced = await this.syncSabnzbdToTarget('radarr', radarrUrl, radarrKey, sabKey);
+      radarrRes = await this.syncSabnzbdToTarget('radarr', radarrUrl, radarrKey, sabKey);
     }
 
     if (sonarrKey) {
-      sonarrSynced = await this.syncSabnzbdToTarget('sonarr', sonarrUrl, sonarrKey, sabKey);
+      sonarrRes = await this.syncSabnzbdToTarget('sonarr', sonarrUrl, sonarrKey, sabKey);
     }
 
-    return { radarr: radarrSynced, sonarr: sonarrSynced };
+    return {
+      radarr: radarrRes.synced,
+      sonarr: sonarrRes.synced,
+      verified: verifiedResult.verified,
+      key: sabKey,
+      radarrMessage: radarrRes.message,
+      sonarrMessage: sonarrRes.message,
+    };
   }
 
   public async ensureRootFolder(target: 'radarr' | 'sonarr', url: string, apiKey: string): Promise<void> {
