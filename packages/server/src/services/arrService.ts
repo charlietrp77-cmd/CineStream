@@ -147,6 +147,8 @@ export class ArrService {
 
           // Auto-sync missing Newznab indexers (altHUB, NZBGeek, DrunkenSlug)
           bootstrapService.registerNewznabIndexers('radarr', radarr.url, radarr.key, [2000, 2030, 2040, 2045, 2060]).catch(() => {});
+          bootstrapService.syncSabnzbdClients().catch(() => {});
+          bootstrapService.ensureRootFolder('radarr', radarr.url, radarr.key).catch(() => {});
 
           // Check live indexers configured in Radarr
           try {
@@ -190,6 +192,8 @@ export class ArrService {
 
           // Auto-sync missing Newznab indexers (altHUB, NZBGeek, DrunkenSlug)
           bootstrapService.registerNewznabIndexers('sonarr', sonarr.url, sonarr.key, [5000, 5020, 5030, 5040, 5045]).catch(() => {});
+          bootstrapService.syncSabnzbdClients().catch(() => {});
+          bootstrapService.ensureRootFolder('sonarr', sonarr.url, sonarr.key).catch(() => {});
 
           // Check live indexers configured in Sonarr
           try {

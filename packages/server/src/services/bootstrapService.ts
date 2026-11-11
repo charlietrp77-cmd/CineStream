@@ -28,6 +28,10 @@ export function sanitizeArrConfigXml(rawContent: string, defaultKey: string, por
   const logMatch = content.match(/<LogLevel>([^<]+)<\/LogLevel>/i);
   const logLevel = logMatch ? logMatch[1].trim() : 'info';
 
+  // Extract AllowedHosts if present
+  const allowedMatch = content.match(/<AllowedHosts>([^<]*)<\/AllowedHosts>/i);
+  const allowedHosts = allowedMatch ? allowedMatch[1].trim() : '';
+
   // Construct guaranteed clean, non-duplicated valid XML
   return `<Config>
   <LogLevel>${logLevel}</LogLevel>
@@ -38,7 +42,7 @@ export function sanitizeArrConfigXml(rawContent: string, defaultKey: string, por
   <ApiKey>${apiKey}</ApiKey>
   <AuthenticationMethod>External</AuthenticationMethod>
   <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
-</Config>
+${allowedHosts ? `  <AllowedHosts>${allowedHosts}</AllowedHosts>\n` : ''}</Config>
 `;
 }
 
@@ -178,6 +182,29 @@ export class BootstrapService {
     return appSettings.get('sabnzbd_api_key') || process.env.SABNZBD_API_KEY || null;
   }
 
+  public syncArrApiKey(target: 'radarr' | 'sonarr'): string | null {
+    try {
+      const configDir = target === 'radarr' ? this.radarrConfigDir : this.sonarrConfigDir;
+      const configXmlPath = path.join(configDir, 'config.xml');
+      if (fs.existsSync(configXmlPath)) {
+        const content = fs.readFileSync(configXmlPath, 'utf8');
+        const match = content.match(/<ApiKey>([^<]+)<\/ApiKey>/i);
+        if (match && match[1]) {
+          const key = match[1].trim();
+          const settingKey = `${target}_api_key`;
+          if (appSettings.get(settingKey) !== key) {
+            appSettings.set(settingKey, key);
+            console.log(`[Bootstrap] Auto-discovered & synced current ${target} API key from ${configXmlPath}`);
+          }
+          return key;
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[Bootstrap] Error reading ${target} config.xml:`, err.message);
+    }
+    return appSettings.get(`${target}_api_key`) || null;
+  }
+
   private bootstrapSabnzbd(): void {
     try {
       const iniPath = path.join(this.sabnzbdConfigDir, 'sabnzbd.ini');
@@ -298,17 +325,15 @@ priority = 0
   }
 
   private async autoLinkServarrAsync(): Promise<void> {
-    // Retry loop for up to 25 attempts (approx 2 minutes while containers spin up)
-    const maxAttempts = 25;
     let radarrLinked = false;
     let sonarrLinked = false;
+    let attempts = 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      await new Promise((r) => setTimeout(r, 5000));
-
-      const radarrKey = appSettings.get('radarr_api_key') || config.radarrApiKey;
-      const sonarrKey = appSettings.get('sonarr_api_key') || config.sonarrApiKey;
-      const sabKey = appSettings.get('sabnzbd_api_key');
+    const checkAndLink = async () => {
+      attempts++;
+      const radarrKey = this.syncArrApiKey('radarr') || config.radarrApiKey;
+      const sonarrKey = this.syncArrApiKey('sonarr') || config.sonarrApiKey;
+      const sabKey = this.syncSabnzbdApiKey();
 
       // 1. Link Radarr
       if (!radarrLinked && radarrKey) {
@@ -318,7 +343,7 @@ priority = 0
             signal: AbortSignal.timeout(3000),
           });
           if (res.ok) {
-            await this.configureRadarr(radarrKey, sabKey);
+            await this.configureRadarr(radarrKey, sabKey || '');
             radarrLinked = true;
             console.log('✅ [Bootstrap] Radarr successfully linked (Root folder /mnt/nas/movies + SABnzbd client registered)!');
           }
@@ -333,7 +358,7 @@ priority = 0
             signal: AbortSignal.timeout(3000),
           });
           if (res.ok) {
-            await this.configureSonarr(sonarrKey, sabKey);
+            await this.configureSonarr(sonarrKey, sabKey || '');
             sonarrLinked = true;
             console.log('✅ [Bootstrap] Sonarr successfully linked (Root folder /mnt/nas/tv + SABnzbd client registered)!');
           }
@@ -341,8 +366,149 @@ priority = 0
       }
 
       if (radarrLinked && sonarrLinked) {
-        break;
+        return;
       }
+
+      // First 20 attempts check every 5s, thereafter continuously every 30s so late-starting or restarted containers link
+      const nextDelay = attempts < 20 ? 5000 : 30000;
+      setTimeout(checkAndLink, nextDelay);
+    };
+
+    setTimeout(checkAndLink, 3000);
+  }
+
+  public async syncSabnzbdToTarget(
+    target: 'radarr' | 'sonarr',
+    serviceUrl: string,
+    apiKey: string,
+    sabKey: string
+  ): Promise<boolean> {
+    const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
+    try {
+      const dcRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient`, {
+        headers,
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!dcRes.ok) {
+        console.warn(`[Bootstrap] Unable to fetch ${target} download clients: HTTP ${dcRes.status}`);
+        return false;
+      }
+
+      const clients: any = await dcRes.json();
+      const existingSab = Array.isArray(clients) && clients.find((c: any) =>
+        c.name?.toLowerCase().includes('sabnzbd') || c.implementation?.toLowerCase().includes('sabnzbd')
+      );
+
+      if (existingSab) {
+        let needsUpdate = false;
+        if (!existingSab.enable) {
+          existingSab.enable = true;
+          needsUpdate = true;
+        }
+
+        const apiKeyField = existingSab.fields?.find((f: any) => f.name?.toLowerCase() === 'apikey');
+        if (apiKeyField && apiKeyField.value !== sabKey) {
+          apiKeyField.value = sabKey;
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+          const updateRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient/${existingSab.id}`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(existingSab),
+          });
+          if (updateRes.ok) {
+            console.log(`[Bootstrap] Successfully updated ${target} SABnzbd client with current API key`);
+            return true;
+          } else {
+            const errText = await updateRes.text();
+            console.warn(`[Bootstrap] Failed to update ${target} SABnzbd client: HTTP ${updateRes.status}`, errText);
+            return false;
+          }
+        }
+        return true;
+      }
+
+      // Query downloadclient schema to dynamically mirror exact field formats for Sonarr/Radarr version
+      let sabSchema: any = null;
+      try {
+        const schemaRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient/schema`, {
+          headers,
+          signal: AbortSignal.timeout(4000),
+        });
+        if (schemaRes.ok) {
+          const schemas: any = await schemaRes.json();
+          if (Array.isArray(schemas)) {
+            sabSchema = schemas.find(
+              (s: any) =>
+                s.implementation?.toLowerCase() === 'sabnzbd' ||
+                s.configContract?.toLowerCase() === 'sabnzbdsettings'
+            );
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Bootstrap] Schema fetch for ${target} downloadclient skipped:`, err.message);
+      }
+
+      const targetCategory = target === 'sonarr' ? 'tv' : 'movies';
+
+      let fields: Array<{ name: string; value: any }> = [];
+      if (sabSchema && Array.isArray(sabSchema.fields)) {
+        fields = sabSchema.fields.map((f: any) => {
+          const n = (f.name || '').toLowerCase();
+          if (n === 'host') return { ...f, value: 'sabnzbd' };
+          if (n === 'port') return { ...f, value: 8080 };
+          if (n === 'apikey') return { ...f, value: sabKey };
+          if (n === 'usessl') return { ...f, value: false };
+          if (n === 'urlbase') return { ...f, value: '' };
+          if (n === 'category' || n === 'tvcategory' || n === 'moviecategory') return { ...f, value: targetCategory };
+          if (n === 'recentpriority' || n === 'recenttvpriority' || n === 'recentmoviepriority') return { ...f, value: 0 };
+          if (n === 'olderpriority') return { ...f, value: 0 };
+          return f;
+        });
+      } else {
+        fields = [
+          { name: 'host', value: 'sabnzbd' },
+          { name: 'port', value: 8080 },
+          { name: 'apiKey', value: sabKey },
+          { name: 'useSsl', value: false },
+          { name: 'urlBase', value: '' },
+          { name: 'category', value: targetCategory },
+          { name: target === 'sonarr' ? 'tvCategory' : 'movieCategory', value: targetCategory },
+          { name: 'recentPriority', value: 0 },
+          { name: 'olderPriority', value: 0 },
+        ];
+      }
+
+      const payload = {
+        ...(sabSchema || {}),
+        name: 'SABnzbd',
+        enable: true,
+        protocol: 'usenet',
+        priority: 1,
+        implementation: 'Sabnzbd',
+        configContract: 'SabnzbdSettings',
+        fields,
+      };
+
+      const addRes = await undiciFetch(`${serviceUrl}/api/v3/downloadclient`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (addRes.ok) {
+        console.log(`[Bootstrap] Successfully registered new SABnzbd client in ${target}`);
+        return true;
+      } else {
+        const errText = await addRes.text();
+        console.warn(`[Bootstrap] Failed to register SABnzbd client in ${target}: HTTP ${addRes.status}`, errText);
+        return false;
+      }
+    } catch (err: any) {
+      console.warn(`[Bootstrap] Error syncing ${target} SABnzbd client:`, err.message);
+      return false;
     }
   }
 
@@ -352,8 +518,8 @@ priority = 0
       return { radarr: false, sonarr: false };
     }
 
-    const radarrKey = appSettings.get('radarr_api_key') || config.radarrApiKey;
-    const sonarrKey = appSettings.get('sonarr_api_key') || config.sonarrApiKey;
+    const radarrKey = this.syncArrApiKey('radarr') || config.radarrApiKey;
+    const sonarrKey = this.syncArrApiKey('sonarr') || config.sonarrApiKey;
     const radarrUrl = appSettings.get('radarr_url') || 'http://radarr:7878';
     const sonarrUrl = appSettings.get('sonarr_url') || 'http://sonarr:8989';
 
@@ -361,145 +527,44 @@ priority = 0
     let sonarrSynced = false;
 
     if (radarrKey) {
-      try {
-        const headers = { 'X-Api-Key': radarrKey, 'Content-Type': 'application/json' };
-        const dcRes = await undiciFetch(`${radarrUrl}/api/v3/downloadclient`, {
-          headers,
-          signal: AbortSignal.timeout(4000),
-        });
-        if (dcRes.ok) {
-          const clients: any = await dcRes.json();
-          const existingSab = Array.isArray(clients) && clients.find((c: any) =>
-            c.name?.toLowerCase().includes('sabnzbd') || c.implementation?.toLowerCase().includes('sabnzbd')
-          );
-
-          if (!existingSab) {
-            await undiciFetch(`${radarrUrl}/api/v3/downloadclient`, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                enable: true,
-                protocol: 'usenet',
-                priority: 1,
-                name: 'SABnzbd',
-                implementation: 'Sabnzbd',
-                configContract: 'SabnzbdSettings',
-                fields: [
-                  { name: 'host', value: 'sabnzbd' },
-                  { name: 'port', value: 8080 },
-                  { name: 'apiKey', value: sabKey },
-                  { name: 'useSsl', value: false },
-                  { name: 'movieCategory', value: 'movies' },
-                  { name: 'recentMoviePriority', value: 0 },
-                ],
-              }),
-            });
-            radarrSynced = true;
-            console.log('[Bootstrap] Registered new SABnzbd client in Radarr');
-          } else {
-            const apiKeyField = existingSab.fields?.find((f: any) => f.name === 'apiKey');
-            if (apiKeyField && apiKeyField.value !== sabKey) {
-              apiKeyField.value = sabKey;
-              const updateRes = await undiciFetch(`${radarrUrl}/api/v3/downloadclient/${existingSab.id}`, {
-                method: 'PUT',
-                headers,
-                body: JSON.stringify(existingSab),
-              });
-              if (updateRes.ok) {
-                radarrSynced = true;
-                console.log('[Bootstrap] Successfully updated Radarr SABnzbd client with current API key');
-              }
-            } else {
-              radarrSynced = true;
-            }
-          }
-        }
-      } catch (err: any) {
-        console.warn('[Bootstrap] Error syncing Radarr SABnzbd client:', err.message);
-      }
+      radarrSynced = await this.syncSabnzbdToTarget('radarr', radarrUrl, radarrKey, sabKey);
     }
 
     if (sonarrKey) {
-      try {
-        const headers = { 'X-Api-Key': sonarrKey, 'Content-Type': 'application/json' };
-        const dcRes = await undiciFetch(`${sonarrUrl}/api/v3/downloadclient`, {
-          headers,
-          signal: AbortSignal.timeout(4000),
-        });
-        if (dcRes.ok) {
-          const clients: any = await dcRes.json();
-          const existingSab = Array.isArray(clients) && clients.find((c: any) =>
-            c.name?.toLowerCase().includes('sabnzbd') || c.implementation?.toLowerCase().includes('sabnzbd')
-          );
-
-          if (!existingSab) {
-            await undiciFetch(`${sonarrUrl}/api/v3/downloadclient`, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                enable: true,
-                protocol: 'usenet',
-                priority: 1,
-                name: 'SABnzbd',
-                implementation: 'Sabnzbd',
-                configContract: 'SabnzbdSettings',
-                fields: [
-                  { name: 'host', value: 'sabnzbd' },
-                  { name: 'port', value: 8080 },
-                  { name: 'apiKey', value: sabKey },
-                  { name: 'useSsl', value: false },
-                  { name: 'tvCategory', value: 'tv' },
-                  { name: 'recentTvPriority', value: 0 },
-                ],
-              }),
-            });
-            sonarrSynced = true;
-            console.log('[Bootstrap] Registered new SABnzbd client in Sonarr');
-          } else {
-            const apiKeyField = existingSab.fields?.find((f: any) => f.name === 'apiKey');
-            if (apiKeyField && apiKeyField.value !== sabKey) {
-              apiKeyField.value = sabKey;
-              const updateRes = await undiciFetch(`${sonarrUrl}/api/v3/downloadclient/${existingSab.id}`, {
-                method: 'PUT',
-                headers,
-                body: JSON.stringify(existingSab),
-              });
-              if (updateRes.ok) {
-                sonarrSynced = true;
-                console.log('[Bootstrap] Successfully updated Sonarr SABnzbd client with current API key');
-              }
-            } else {
-              sonarrSynced = true;
-            }
-          }
-        }
-      } catch (err: any) {
-        console.warn('[Bootstrap] Error syncing Sonarr SABnzbd client:', err.message);
-      }
+      sonarrSynced = await this.syncSabnzbdToTarget('sonarr', sonarrUrl, sonarrKey, sabKey);
     }
 
     return { radarr: radarrSynced, sonarr: sonarrSynced };
   }
 
-  private async configureRadarr(apiKey: string, sabKey: string): Promise<void> {
+  public async ensureRootFolder(target: 'radarr' | 'sonarr', url: string, apiKey: string): Promise<void> {
+    const defaultPath = target === 'radarr' ? '/mnt/nas/movies' : '/mnt/nas/tv';
+    const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
+    try {
+      const rfRes = await undiciFetch(`${url}/api/v3/rootfolder`, { headers, signal: AbortSignal.timeout(3000) });
+      if (rfRes.ok) {
+        const rootFolders: any = await rfRes.json();
+        const hasRoot = Array.isArray(rootFolders) && rootFolders.some((f: any) => f.path === defaultPath);
+        if (!hasRoot) {
+          const createRes = await undiciFetch(`${url}/api/v3/rootfolder`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ path: defaultPath }),
+          });
+          if (createRes.ok) {
+            console.log(`[Bootstrap] Registered root folder ${defaultPath} in ${target}`);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  public async configureRadarr(apiKey: string, sabKey: string): Promise<void> {
     const radarrUrl = appSettings.get('radarr_url') || 'http://radarr:7878';
     const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
 
     // A. Root folder /mnt/nas/movies
-    try {
-      const rfRes = await undiciFetch(`${radarrUrl}/api/v3/rootfolder`, { headers });
-      if (rfRes.ok) {
-        const rootFolders: any = await rfRes.json();
-        const hasMovieRoot = Array.isArray(rootFolders) && rootFolders.some((f: any) => f.path === '/mnt/nas/movies');
-        if (!hasMovieRoot) {
-          await undiciFetch(`${radarrUrl}/api/v3/rootfolder`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ path: '/mnt/nas/movies' }),
-          });
-        }
-      }
-    } catch (_) {}
+    await this.ensureRootFolder('radarr', radarrUrl, apiKey);
 
     // B. Download client SABnzbd
     await this.syncSabnzbdClients(sabKey);
@@ -527,25 +592,12 @@ priority = 0
     await this.registerNewznabIndexers('radarr', radarrUrl, apiKey, [2000, 2030, 2040, 2045, 2050, 2060]);
   }
 
-  private async configureSonarr(apiKey: string, sabKey: string): Promise<void> {
+  public async configureSonarr(apiKey: string, sabKey: string): Promise<void> {
     const sonarrUrl = appSettings.get('sonarr_url') || 'http://sonarr:8989';
     const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
 
     // A. Root folder /mnt/nas/tv
-    try {
-      const rfRes = await undiciFetch(`${sonarrUrl}/api/v3/rootfolder`, { headers });
-      if (rfRes.ok) {
-        const rootFolders: any = await rfRes.json();
-        const hasTvRoot = Array.isArray(rootFolders) && rootFolders.some((f: any) => f.path === '/mnt/nas/tv');
-        if (!hasTvRoot) {
-          await undiciFetch(`${sonarrUrl}/api/v3/rootfolder`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ path: '/mnt/nas/tv' }),
-          });
-        }
-      }
-    } catch (_) {}
+    await this.ensureRootFolder('sonarr', sonarrUrl, apiKey);
 
     // B. Download client SABnzbd
     await this.syncSabnzbdClients(sabKey);
