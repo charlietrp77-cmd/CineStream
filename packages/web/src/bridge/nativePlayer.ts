@@ -72,6 +72,12 @@ class NativePlayerBridge {
     await NativeVideoPlayer.setSubtitleTrack({ trackId });
   }
 
+  public async setVideoMode(mode: 'copy' | 'transcode'): Promise<void> {
+    if ((NativeVideoPlayer as any).setVideoMode) {
+      await (NativeVideoPlayer as any).setVideoMode({ mode });
+    }
+  }
+
   public onStateChange(listener: PlayerStateListener): () => void {
     this.stateListeners.add(listener);
     return () => this.stateListeners.delete(listener);

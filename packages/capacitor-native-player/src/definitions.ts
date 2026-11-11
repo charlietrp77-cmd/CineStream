@@ -46,6 +46,7 @@ export interface NativeVideoPlayerPlugin {
   getTracks(): Promise<{ audioTracks: TrackInfo[]; subtitleTracks: TrackInfo[] }>;
   setAudioTrack(options: { trackId: string }): Promise<void>;
   setSubtitleTrack(options: { trackId: string | null }): Promise<void>;
+  setVideoMode?(options: { mode: 'copy' | 'transcode' }): Promise<void>;
 
   // Offline Tablet Storage API
   startOfflineDownload(options: OfflineDownloadOptions): Promise<{ localFileUri: string }>;

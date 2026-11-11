@@ -36,6 +36,7 @@ export interface RemuxOptions {
   startTime?: number; // In seconds
   audioTrackIndex?: number;
   audioMode?: 'auto' | 'copy' | 'transcode';
+  videoMode?: 'copy' | 'transcode';
 }
 
 export class RemuxService {
@@ -281,8 +282,26 @@ export class RemuxService {
 
     args.push('-i', source);
 
-    // Map primary video track: PURE REMUX (NO TRANSCODING)
-    args.push('-map', '0:v:0', '-c:v', 'copy');
+    // Video Track Processing:
+    // 1. Direct Copy (0% CPU, 4K HDR preserved): tagged with 'hvc1' so Chromium/Safari hardware decoder renders frames.
+    // 2. Compatibility Transcode (H.264 8-bit YUV420P): for browsers without HEVC extension or hardware support.
+    if (options.videoMode === 'transcode') {
+      args.push(
+        '-map', '0:v:0',
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-tune', 'zerolatency',
+        '-crf', '22',
+        '-pix_fmt', 'yuv420p',
+        '-tag:v', 'avc1'
+      );
+    } else {
+      args.push(
+        '-map', '0:v:0',
+        '-c:v', 'copy',
+        '-tag:v', 'hvc1'
+      );
+    }
 
     // Audio Track Selection & Transmuxing
     const audioIdx = typeof options.audioTrackIndex === 'number' ? options.audioTrackIndex : 0;
@@ -339,3 +358,4 @@ export class RemuxService {
 }
 
 export const remuxService = new RemuxService();
+

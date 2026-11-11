@@ -16,13 +16,11 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
   private isRemuxStream = false;
   private selectedAudioTrackId = '0';
   private selectedSubtitleTrackId: string | null = null;
+  private videoMode: 'copy' | 'transcode' = 'copy';
   private probedDurationMs = 0;
   private currentTimeOffsetMs = 0;
   private audioTracksCache: TrackInfo[] = [];
   private subtitleTracksCache: TrackInfo[] = [];
-  private mediaSource: MediaSource | null = null;
-  private sourceBuffer: SourceBuffer | null = null;
-  private streamAbortController: AbortController | null = null;
 
   private getOrCreateVideo(): HTMLVideoElement {
     if (this.videoEl) {
@@ -39,11 +37,12 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
     video.id = 'cinestream-native-video';
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
+    video.setAttribute('crossorigin', 'anonymous');
     video.style.position = 'fixed';
     video.style.inset = '0';
     video.style.width = '100vw';
     video.style.height = '100vh';
-    video.style.zIndex = '40';
+    video.style.zIndex = '45'; // Strictly above page root (z-0 to z-30), below OSD (z-50)
     video.style.pointerEvents = 'none';
     video.style.backgroundColor = '#000000';
     video.style.objectFit = 'contain';
@@ -77,10 +76,14 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
 
     video.addEventListener('error', () => {
       const err = video.error;
-      // If direct playback failed on an MKV or unfamiliar format, auto-switch to remux!
-      if (!this.isRemuxStream && this.currentOptions?.url) {
-        console.warn('[NativeVideoPlayerWeb] Direct video playback failed. Switching to 4K Remux Engine...');
-        this.startRemuxStream(this.currentOptions.url, 0);
+      console.warn('[NativeVideoPlayerWeb] Video element reported error:', err);
+
+      // If direct remux (HEVC copy) errored or failed to render, auto-try transcode mode!
+      if (this.isRemuxStream && this.videoMode === 'copy' && this.currentOptions?.url) {
+        console.warn('[NativeVideoPlayerWeb] Direct HEVC remux failed. Auto-switching to Compatibility Transcode Mode...');
+        this.videoMode = 'transcode';
+        const currentSec = (this.currentTimeOffsetMs + Math.floor((this.videoEl?.currentTime || 0) * 1000)) / 1000;
+        this.startRemuxStream(this.currentOptions.url, currentSec);
         return;
       }
 
@@ -90,7 +93,8 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
       });
     });
 
-    document.body.prepend(video);
+    // Append to document.body AFTER #root to prevent #root background styles from obscuring the video
+    document.body.appendChild(video);
     this.videoEl = video;
     return video;
   }
@@ -109,11 +113,12 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
     );
   }
 
-  private buildRemuxUrl(sourceUrl: string, startSec: number, audioTrack: string): string {
+  private buildRemuxUrl(sourceUrl: string, startSec: number, audioTrack: string, videoMode: 'copy' | 'transcode'): string {
     const params = new URLSearchParams({
       url: sourceUrl,
       start: startSec.toFixed(3),
       audioTrack,
+      videoMode,
     });
     return `/api/remux/stream?${params.toString()}`;
   }
@@ -158,100 +163,22 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
   }
 
   /**
-   * Initializes playback via the 4K HDR Remux Engine.
-   * Transmuxes container to fragmented MP4 (fMP4) with direct HEVC copy and multi-channel AAC.
+   * Initializes playback via the Remux Engine.
+   * Uses native progressive fMP4 with tagged hvc1/avc1 bitstream.
    */
   private async startRemuxStream(sourceUrl: string, startSec: number): Promise<void> {
     const video = this.getOrCreateVideo();
     this.isRemuxStream = true;
     this.currentTimeOffsetMs = Math.round(startSec * 1000);
 
-    // Abort any prior stream
-    if (this.streamAbortController) {
-      this.streamAbortController.abort();
-      this.streamAbortController = null;
-    }
+    const remuxUrl = this.buildRemuxUrl(sourceUrl, startSec, this.selectedAudioTrackId, this.videoMode);
 
-    const remuxUrl = this.buildRemuxUrl(sourceUrl, startSec, this.selectedAudioTrackId);
-
-    // Try MSE if supported by the browser, otherwise fall back to progressive fMP4
-    const canUseMse =
-      typeof window !== 'undefined' &&
-      'MediaSource' in window &&
-      (MediaSource.isTypeSupported('video/mp4; codecs="hvc1, mp4a.40.2"') ||
-        MediaSource.isTypeSupported('video/mp4; codecs="avc1.640028, mp4a.40.2"') ||
-        MediaSource.isTypeSupported('video/mp4'));
-
-    if (canUseMse && !this.mediaSource) {
-      try {
-        const ms = new MediaSource();
-        this.mediaSource = ms;
-        video.src = URL.createObjectURL(ms);
-
-        await new Promise<void>((resolve, reject) => {
-          const onOpen = () => {
-            ms.removeEventListener('sourceopen', onOpen);
-            resolve();
-          };
-          ms.addEventListener('sourceopen', onOpen);
-          setTimeout(() => reject(new Error('MediaSource open timeout')), 3000);
-        });
-
-        // Determine best supported MIME codec string
-        let mime = 'video/mp4; codecs="hvc1, mp4a.40.2"';
-        if (!MediaSource.isTypeSupported(mime)) {
-          mime = 'video/mp4; codecs="avc1.640028, mp4a.40.2"';
-        }
-        if (!MediaSource.isTypeSupported(mime)) {
-          mime = 'video/mp4';
-        }
-
-        const sb = ms.addSourceBuffer(mime);
-        sb.mode = 'segments';
-        this.sourceBuffer = sb;
-
-        const abortCtrl = new AbortController();
-        this.streamAbortController = abortCtrl;
-
-        const response = await fetch(remuxUrl, { signal: abortCtrl.signal });
-        if (!response.body) throw new Error('ReadableStream not supported');
-
-        const reader = response.body.getReader();
-        const pump = async () => {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              if (ms.readyState === 'open') ms.endOfStream();
-              break;
-            }
-            if (sb.updating) {
-              await new Promise<void>((r) => sb.addEventListener('updateend', () => r(), { once: true }));
-            }
-            sb.appendBuffer(value);
-          }
-        };
-
-        pump().catch((pumpErr) => {
-          if (!abortCtrl.signal.aborted) {
-            console.warn('[MSE Player] Chunk stream error:', pumpErr);
-          }
-        });
-
-        await video.play();
-        return;
-      } catch (mseErr) {
-        console.warn('[MSE Player] MediaSource init failed, using progressive fMP4:', mseErr);
-        this.mediaSource = null;
-        this.sourceBuffer = null;
-      }
-    }
-
-    // Direct progressive fMP4 stream fallback (natively supported by Chromium/WebKit/Blink)
+    // Progressive fMP4: Native browser C++ pipeline demuxes audio & video tracks concurrently
     video.src = remuxUrl;
     try {
       await video.play();
     } catch (e) {
-      console.warn('Playback play() was prevented:', e);
+      console.warn('[NativeVideoPlayerWeb] play() was prevented:', e);
     }
   }
 
@@ -261,6 +188,18 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
     this.currentTimeOffsetMs = 0;
     this.selectedAudioTrackId = '0';
     this.selectedSubtitleTrackId = null;
+
+    // Check stored user preference for video mode
+    try {
+      const savedMode = localStorage.getItem('cinestream_web_video_mode');
+      if (savedMode === 'transcode' || savedMode === 'copy') {
+        this.videoMode = savedMode;
+      } else {
+        this.videoMode = 'copy';
+      }
+    } catch (_) {
+      this.videoMode = 'copy';
+    }
 
     const video = this.getOrCreateVideo();
     document.documentElement.classList.add('video-playing');
@@ -285,7 +224,6 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
       }
     }
 
-    // Emit initial empty tracks while probing completes
     setTimeout(() => {
       this.notifyListeners('tracksLoaded', {
         audioTracks: this.audioTracksCache,
@@ -311,7 +249,6 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
     const targetSec = targetMs / 1000;
 
     if (this.isRemuxStream && this.currentOptions?.url) {
-      // For remux streaming: Seek instantly at keyframe boundary via FFmpeg
       await this.startRemuxStream(this.currentOptions.url, targetSec);
     } else if (this.videoEl) {
       this.videoEl.currentTime = targetSec;
@@ -321,11 +258,6 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
   async stop(): Promise<void> {
     document.documentElement.classList.remove('video-playing');
 
-    if (this.streamAbortController) {
-      this.streamAbortController.abort();
-      this.streamAbortController = null;
-    }
-
     if (this.videoEl) {
       this.videoEl.pause();
       this.videoEl.src = '';
@@ -334,8 +266,6 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
       this.videoEl = null;
     }
 
-    this.mediaSource = null;
-    this.sourceBuffer = null;
     this.isRemuxStream = false;
     this.currentOptions = null;
   }
@@ -350,7 +280,6 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
   async setAudioTrack(options: { trackId: string }): Promise<void> {
     this.selectedAudioTrackId = options.trackId;
 
-    // Update selection state in cached tracks
     this.audioTracksCache = this.audioTracksCache.map((t) => ({
       ...t,
       selected: t.id === options.trackId,
@@ -360,7 +289,6 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
       subtitleTracks: this.subtitleTracksCache,
     });
 
-    // If currently remuxing, seamlessly restart stream with new audio track at current timestamp
     if (this.isRemuxStream && this.currentOptions?.url && this.videoEl) {
       const currentPosSec = (this.currentTimeOffsetMs + Math.floor(this.videoEl.currentTime * 1000)) / 1000;
       await this.startRemuxStream(this.currentOptions.url, currentPosSec);
@@ -383,6 +311,18 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
     }
   }
 
+  async setVideoMode(options: { mode: 'copy' | 'transcode' }): Promise<void> {
+    this.videoMode = options.mode;
+    try {
+      localStorage.setItem('cinestream_web_video_mode', options.mode);
+    } catch (_) {}
+
+    if (this.isRemuxStream && this.currentOptions?.url && this.videoEl) {
+      const currentPosSec = (this.currentTimeOffsetMs + Math.floor(this.videoEl.currentTime * 1000)) / 1000;
+      await this.startRemuxStream(this.currentOptions.url, currentPosSec);
+    }
+  }
+
   async startOfflineDownload(options: OfflineDownloadOptions): Promise<{ localFileUri: string }> {
     const abortController = new AbortController();
     const download = { abortController, downloaded: 0, total: 0 };
@@ -390,7 +330,6 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
 
     const localFileUri = `file://offline/${options.filename}`;
 
-    // Background browser chunk fetch
     (async () => {
       try {
         const res = await fetch(options.url, {

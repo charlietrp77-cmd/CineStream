@@ -30,6 +30,7 @@ export async function remuxRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
       start?: string;
       audioTrack?: string;
       audioCopy?: string;
+      videoMode?: string;
     };
 
     if (!query.url) {
@@ -39,12 +40,14 @@ export async function remuxRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
     const startTime = query.start ? Math.max(0, parseFloat(query.start) || 0) : 0;
     const audioTrackIndex = query.audioTrack !== undefined ? parseInt(query.audioTrack, 10) : 0;
     const audioMode = query.audioCopy === 'true' || query.audioCopy === '1' ? 'copy' : 'auto';
+    const videoMode = query.videoMode === 'transcode' ? 'transcode' : 'copy';
 
     const { stdout, kill } = remuxService.createRemuxStream({
       source: query.url,
       startTime,
       audioTrackIndex,
       audioMode,
+      videoMode,
     });
 
     // Cleanup FFmpeg process as soon as client closes connection or navigates away
@@ -69,3 +72,4 @@ export async function remuxRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
     return reply;
   });
 }
+

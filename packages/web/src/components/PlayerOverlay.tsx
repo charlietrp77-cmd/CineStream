@@ -87,6 +87,19 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
+  const [videoMode, setVideoModeState] = useState<'copy' | 'transcode'>(() => {
+    try {
+      return (localStorage.getItem('cinestream_web_video_mode') as any) || 'copy';
+    } catch (_) {
+      return 'copy';
+    }
+  });
+
+  const toggleVideoMode = () => {
+    const next = videoMode === 'copy' ? 'transcode' : 'copy';
+    setVideoModeState(next);
+    nativePlayer.setVideoMode(next);
+  };
 
   const absoluteStreamUrl = streamUrl.startsWith('http')
     ? streamUrl
@@ -662,10 +675,19 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
               </span>
             )}
 
-            <span className="hidden sm:flex items-center gap-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-xs font-semibold backdrop-blur-md" title="Lossless direct stream copy with multi-channel audio">
-              <Zap className="w-3.5 h-3.5 text-emerald-400" />
-              Remux Direct Stream
-            </span>
+            <button
+              onClick={toggleVideoMode}
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold backdrop-blur-md transition-all border active:scale-95"
+              style={{
+                backgroundColor: videoMode === 'copy' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(234, 88, 12, 0.2)',
+                borderColor: videoMode === 'copy' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(234, 88, 12, 0.4)',
+                color: videoMode === 'copy' ? '#34d399' : '#fb923c',
+              }}
+              title="Click to toggle between Direct 4K Remux (0% CPU) and Compatibility Transcode (H.264)"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>{videoMode === 'copy' ? '⚡ 4K Remux Direct' : '🎬 Compatibility Transcode'}</span>
+            </button>
 
             <button
               onClick={copyStreamUrl}
@@ -718,23 +740,37 @@ export const PlayerOverlay: React.FC<PlayerOverlayProps> = ({
                 Stream smoothly by launching directly in VLC or copying the link.
               </p>
 
-              {/* Action Buttons: VLC (.m3u) + Copy Button */}
-              <div className="flex flex-col sm:flex-row gap-2 pt-1">
+              {/* Action Buttons: Compatibility Mode + VLC (.m3u) + Copy Button */}
+              <div className="space-y-2 pt-1">
                 <button
-                  onClick={downloadVlcM3u}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow transition-all"
-                  title="Downloads a .m3u file that opens immediately in VLC"
+                  onClick={() => {
+                    setVideoModeState('transcode');
+                    nativePlayer.setVideoMode('transcode');
+                    setPlayerError(null);
+                  }}
+                  className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow transition-all flex items-center justify-center gap-2"
                 >
-                  <Download className="w-4 h-4" />
-                  Open in VLC (.m3u)
+                  <Zap className="w-4 h-4" />
+                  Try Compatibility Transcode Mode (H.264)
                 </button>
-                <button
-                  onClick={copyStreamUrl}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-white/10 hover:bg-white/20 active:scale-95 text-white font-bold text-xs rounded-xl transition-all"
-                >
-                  {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                  {copied ? 'Copied URL!' : 'Copy Stream URL'}
-                </button>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={downloadVlcM3u}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow transition-all"
+                    title="Downloads a .m3u file that opens immediately in VLC"
+                  >
+                    <Download className="w-4 h-4" />
+                    Open in VLC (.m3u)
+                  </button>
+                  <button
+                    onClick={copyStreamUrl}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-white/10 hover:bg-white/20 active:scale-95 text-white font-bold text-xs rounded-xl transition-all"
+                  >
+                    {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    {copied ? 'Copied URL!' : 'Copy Stream URL'}
+                  </button>
+                </div>
               </div>
 
               {/* Visible Direct Stream Link Box */}
