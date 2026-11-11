@@ -348,9 +348,23 @@ export class BootstrapService {
           updated = true;
         }
 
+        // Automatically ensure movies and tv categories exist in sabnzbd.ini
+        if (!content.includes('[[movies]]') || !content.includes('[[tv]]')) {
+          if (!content.includes('[categories]')) {
+            content += `\n[categories]\n[[*]]\nname = *\norder = 0\npp = 3\nscript = Default\ndir = ""\nnewzbin = ""\npriority = 0\n`;
+          }
+          if (!content.includes('[[movies]]')) {
+            content += `[[movies]]\nname = movies\norder = 1\npp = ""\nscript = Default\ndir = movies\nnewzbin = ""\npriority = 0\n`;
+          }
+          if (!content.includes('[[tv]]')) {
+            content += `[[tv]]\nname = tv\norder = 2\npp = ""\nscript = Default\ndir = tv\nnewzbin = ""\npriority = 0\n`;
+          }
+          updated = true;
+        }
+
         if (updated) {
           this.writeConfigFile(iniPath, content);
-          console.log('[Bootstrap] Automatically added container hostnames to SABnzbd host_whitelist in sabnzbd.ini');
+          console.log('[Bootstrap] Automatically added container hostnames & categories to sabnzbd.ini');
         }
         return;
       }
@@ -375,6 +389,32 @@ download_dir = /mnt/nas/downloads/incomplete
 complete_dir = /mnt/nas/downloads/complete
 backup_dir = /mnt/backups/sabnzbd
 auto_browser = 0
+
+[categories]
+[[*]]
+name = *
+order = 0
+pp = 3
+script = Default
+dir = ""
+newzbin = ""
+priority = 0
+[[movies]]
+name = movies
+order = 1
+pp = ""
+script = Default
+dir = movies
+newzbin = ""
+priority = 0
+[[tv]]
+name = tv
+order = 2
+pp = ""
+script = Default
+dir = tv
+newzbin = ""
+priority = 0
 `;
 
         if (config.easynewsUsername && config.easynewsPassword) {
@@ -497,12 +537,30 @@ priority = 0
     setTimeout(checkAndLink, 3000);
   }
 
+  public async ensureSabnzbdCategories(sabKey: string): Promise<void> {
+    const categories = ['movies', 'tv'];
+    for (const cat of categories) {
+      try {
+        const url = `http://sabnzbd:8080/api?mode=set_config&section=categories&keyword=${cat}&dir=${cat}&priority=0&pp=3&script=Default&output=json&apikey=${sabKey}`;
+        const res = await undiciFetch(url, { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          console.log(`[Bootstrap] Ensured category '${cat}' in SABnzbd`);
+        }
+      } catch (err: any) {
+        console.warn(`[Bootstrap] Notice creating category '${cat}' in SABnzbd:`, err.message);
+      }
+    }
+  }
+
   public async syncSabnzbdToTarget(
     target: 'radarr' | 'sonarr',
     serviceUrl: string,
     apiKey: string,
     sabKey: string
   ): Promise<{ synced: boolean; message: string }> {
+    // Proactively register 'movies' and 'tv' categories in SABnzbd so Radarr/Sonarr validations succeed
+    await this.ensureSabnzbdCategories(sabKey);
+
     const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' };
     const targetCategory = target === 'sonarr' ? 'tv' : 'movies';
     try {
