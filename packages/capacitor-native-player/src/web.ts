@@ -206,9 +206,6 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
 
     const startSec = (options.startPositionMs || 0) / 1000;
 
-    // Trigger async background ffprobe for audio/subtitles and HDR detection
-    this.probeMediaInfo(options.url);
-
     if (this.shouldAutoRemux(options.url)) {
       await this.startRemuxStream(options.url, startSec);
     } else {
@@ -223,6 +220,11 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
         console.warn('Direct play() was prevented:', e);
       }
     }
+
+    // Deferred non-blocking ffprobe for audio/subtitles (prevents competing bandwidth at startup)
+    setTimeout(() => {
+      this.probeMediaInfo(options.url);
+    }, 1200);
 
     setTimeout(() => {
       this.notifyListeners('tracksLoaded', {

@@ -106,14 +106,22 @@ export class RemuxService {
 
     return new Promise((resolve) => {
       const isRemote = source.startsWith('http://') || source.startsWith('https://');
-      const args: string[] = ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams'];
+      const args: string[] = [
+        '-v', 'quiet',
+        '-print_format', 'json',
+        '-show_format',
+        '-show_streams',
+        '-probesize', '1048576',
+        '-analyzeduration', '1000000',
+      ];
 
       if (isRemote) {
         args.push(
+          '-fflags', '+nobuffer+fastseek',
           '-reconnect', '1',
           '-reconnect_at_eof', '1',
           '-reconnect_streamed', '1',
-          '-reconnect_delay_max', '5'
+          '-reconnect_delay_max', '3'
         );
 
         if (source.includes('easynews.com') && config.easynewsUsername && config.easynewsPassword) {
@@ -279,6 +287,10 @@ export class RemuxService {
     const args: string[] = [
       '-hide_banner',
       '-loglevel', 'warning',
+      '-probesize', '1048576',
+      '-analyzeduration', '1000000',
+      '-fflags', '+nobuffer+fastseek',
+      '-flush_packets', '1',
     ];
 
     // Fast input seeking: Placing -ss before -i seeks instantly at keyframe boundary
@@ -292,7 +304,7 @@ export class RemuxService {
         '-reconnect', '1',
         '-reconnect_at_eof', '1',
         '-reconnect_streamed', '1',
-        '-reconnect_delay_max', '5'
+        '-reconnect_delay_max', '3'
       );
 
       if (source.includes('easynews.com') && config.easynewsUsername && config.easynewsPassword) {
@@ -304,7 +316,7 @@ export class RemuxService {
     args.push('-i', source);
 
     // Video Track Processing:
-    // 1. Direct Copy (0% CPU, 4K HDR preserved): tagged with 'hvc1' so Chromium/Safari hardware decoder renders frames.
+    // 1. Direct Copy (0% CPU, 4K HDR preserved): tagged with 'hvc1' only for HEVC, allowing H.264 to use avc1.
     // 2. Compatibility Transcode (H.264 8-bit YUV420P): for browsers without HEVC extension or hardware support.
     if (options.videoMode === 'transcode') {
       args.push(
@@ -317,11 +329,17 @@ export class RemuxService {
         '-tag:v', 'avc1'
       );
     } else {
-      args.push(
-        '-map', '0:v:0',
-        '-c:v', 'copy',
-        '-tag:v', 'hvc1'
-      );
+      args.push('-map', '0:v:0', '-c:v', 'copy');
+      const lower = source.toLowerCase();
+      const isHevc =
+        lower.includes('hevc') ||
+        lower.includes('h265') ||
+        lower.includes('x265') ||
+        lower.includes('2160p') ||
+        lower.includes('4k');
+      if (isHevc) {
+        args.push('-tag:v', 'hvc1');
+      }
     }
 
     // Audio Track Selection & Transmuxing
@@ -338,6 +356,7 @@ export class RemuxService {
 
     // Container: Fragmented MP4 for immediate streaming playback
     args.push(
+      '-max_muxing_queue_size', '4096',
       '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
       '-avoid_negative_ts', 'make_zero',
       '-f', 'mp4',
