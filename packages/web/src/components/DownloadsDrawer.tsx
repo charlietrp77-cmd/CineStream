@@ -13,10 +13,6 @@ import {
   Download,
   Zap,
   Cloud,
-  FileText,
-  ShieldCheck,
-  Server,
-  Box,
   Radar,
   Settings,
   ExternalLink,
@@ -25,7 +21,19 @@ import { DiskSpaceInfo, NasCacheItem, OfflineMediaItem, ProviderQuota, ResolvedS
 import { useOfflineStore } from '../store/useOfflineStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { offlineDownloader } from '../bridge/offlineDownloader';
-import { PremiumizeIcon } from './ProviderBadge';
+import {
+  PremiumizeIcon,
+  TorboxIcon,
+  EasynewsIcon,
+  RealDebridIcon,
+  AllDebridIcon,
+  AlthubIcon,
+  NzbgeekIcon,
+  DrunkenslugIcon,
+  SabnzbdIcon,
+  SonarrIcon,
+  RadarrIcon,
+} from './ProviderBadge';
 
 interface DownloadsDrawerProps {
   isOpen: boolean;
@@ -301,11 +309,11 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      {q.provider === 'torbox' && <Box className="w-4 h-4 text-emerald-400 stroke-[2.2]" />}
-                      {q.provider === 'premiumize' && <PremiumizeIcon className="w-4 h-4" />}
-                      {q.provider === 'easynews' && <FileText className="w-4 h-4 text-amber-400" />}
-                      {q.provider === 'realdebrid' && <ShieldCheck className="w-4 h-4 text-emerald-400" />}
-                      {q.provider === 'alldebrid' && <Server className="w-4 h-4 text-orange-400" />}
+                      {q.provider === 'torbox' && <TorboxIcon className="w-4 h-4 shrink-0" />}
+                      {q.provider === 'premiumize' && <PremiumizeIcon className="w-4 h-4 shrink-0" />}
+                      {q.provider === 'easynews' && <EasynewsIcon className="w-4 h-4 shrink-0" />}
+                      {q.provider === 'realdebrid' && <RealDebridIcon className="w-4 h-4 shrink-0" />}
+                      {q.provider === 'alldebrid' && <AllDebridIcon className="w-4 h-4 shrink-0" />}
                       <div>
                         <p className="font-bold text-gray-200">{q.name}</p>
                         {q.plan && <p className="text-[10px] text-gray-400">{q.plan}</p>}
@@ -430,25 +438,28 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                   </p>
                 )}
 
-                {/* Status Badges with Clickable IP URLs */}
+                {/* Status Badges with Clickable IP URLs & Brand Icons */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                   <div className="p-2.5 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <span className="font-bold text-gray-200">Radarr (Movies)</span>
-                      {radarrLink ? (
-                        <a
-                          href={radarrLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline truncate mt-0.5 group"
-                          title={`Open Radarr at ${radarrLink}`}
-                        >
-                          <span className="truncate">{radarrLink}</span>
-                          <ExternalLink className="w-3 h-3 flex-shrink-0 text-cyan-400/80 group-hover:text-cyan-300" />
-                        </a>
-                      ) : (
-                        <p className="text-[10px] text-gray-400 truncate">Not set</p>
-                      )}
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <RadarrIcon className="w-5 h-5 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <span className="font-bold text-gray-200">Radarr (Movies)</span>
+                        {radarrLink ? (
+                          <a
+                            href={radarrLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline truncate mt-0.5 group"
+                            title={`Open Radarr at ${radarrLink}`}
+                          >
+                            <span className="truncate">{radarrLink}</span>
+                            <ExternalLink className="w-3 h-3 flex-shrink-0 text-cyan-400/80 group-hover:text-cyan-300" />
+                          </a>
+                        ) : (
+                          <p className="text-[10px] text-gray-400 truncate">Not set</p>
+                        )}
+                      </div>
                     </div>
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${
@@ -464,22 +475,25 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                   </div>
 
                   <div className="p-2.5 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <span className="font-bold text-gray-200">Sonarr (Series)</span>
-                      {sonarrLink ? (
-                        <a
-                          href={sonarrLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline truncate mt-0.5 group"
-                          title={`Open Sonarr at ${sonarrLink}`}
-                        >
-                          <span className="truncate">{sonarrLink}</span>
-                          <ExternalLink className="w-3 h-3 flex-shrink-0 text-cyan-400/80 group-hover:text-cyan-300" />
-                        </a>
-                      ) : (
-                        <p className="text-[10px] text-gray-400 truncate">Not set</p>
-                      )}
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <SonarrIcon className="w-5 h-5 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <span className="font-bold text-gray-200">Sonarr (Series)</span>
+                        {sonarrLink ? (
+                          <a
+                            href={sonarrLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline truncate mt-0.5 group"
+                            title={`Open Sonarr at ${sonarrLink}`}
+                          >
+                            <span className="truncate">{sonarrLink}</span>
+                            <ExternalLink className="w-3 h-3 flex-shrink-0 text-cyan-400/80 group-hover:text-cyan-300" />
+                          </a>
+                        ) : (
+                          <p className="text-[10px] text-gray-400 truncate">Not set</p>
+                        )}
+                      </div>
                     </div>
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${
@@ -493,6 +507,27 @@ export const DownloadsDrawer: React.FC<DownloadsDrawerProps> = ({
                       {arrStatus?.sonarr.online ? 'Online' : arrStatus?.sonarr.configured ? 'Offline' : 'Not Set'}
                     </span>
                   </div>
+                </div>
+
+                {/* Indexers & Downloaders Brand Indicators */}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="text-[10px] text-gray-400 font-medium">Indexers:</span>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-[10px] text-cyan-300 font-bold" title="AltHub Usenet Indexer">
+                    <AlthubIcon className="w-3 h-3 flex-shrink-0" />
+                    AltHub
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-300 font-bold" title="NZBGeek Usenet Indexer">
+                    <NzbgeekIcon className="w-3 h-3 flex-shrink-0" />
+                    NZBGeek
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-lime-500/10 border border-lime-500/30 text-[10px] text-lime-300 font-bold" title="DrunkenSlug Usenet Indexer">
+                    <DrunkenslugIcon className="w-3 h-3 flex-shrink-0" />
+                    DrunkenSlug
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-[10px] text-yellow-300 font-bold ml-auto" title="SABnzbd Usenet Downloader">
+                    <SabnzbdIcon className="w-3 h-3 flex-shrink-0" />
+                    SABnzbd
+                  </span>
                 </div>
 
                 {/* Inline Settings Form */}

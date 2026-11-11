@@ -8,15 +8,17 @@ import {
   User,
   Zap,
   Cloud,
-  FileText,
-  ShieldCheck,
-  Server,
-  Box,
 } from 'lucide-react';
 import { useProfileStore } from '../store/useProfileStore';
 import { useOfflineStore } from '../store/useOfflineStore';
 import { ProviderQuota } from '../types/api';
-import { PremiumizeIcon } from './ProviderBadge';
+import {
+  PremiumizeIcon,
+  TorboxIcon,
+  EasynewsIcon,
+  RealDebridIcon,
+  AllDebridIcon,
+} from './ProviderBadge';
 
 interface NavbarProps {
   onOpenSearch: () => void;
@@ -29,15 +31,15 @@ interface NavbarProps {
 const ProviderQuotaIcon: React.FC<{ provider: string }> = ({ provider }) => {
   switch (provider) {
     case 'torbox':
-      return <Box className="w-3.5 h-3.5 text-emerald-400 stroke-[2.2]" />;
+      return <TorboxIcon className="w-3.5 h-3.5" />;
     case 'premiumize':
       return <PremiumizeIcon className="w-3.5 h-3.5" />;
     case 'easynews':
-      return <FileText className="w-3.5 h-3.5 text-amber-400" />;
+      return <EasynewsIcon className="w-3.5 h-3.5" />;
     case 'realdebrid':
-      return <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />;
+      return <RealDebridIcon className="w-3.5 h-3.5" />;
     case 'alldebrid':
-      return <Server className="w-3.5 h-3.5 text-orange-400" />;
+      return <AllDebridIcon className="w-3.5 h-3.5" />;
     default:
       return <Cloud className="w-3.5 h-3.5 text-gray-400" />;
   }
