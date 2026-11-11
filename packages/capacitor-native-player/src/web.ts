@@ -109,10 +109,16 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
       lower.includes('remux') ||
       lower.includes('dts') ||
       lower.includes('truehd') ||
-      lower.includes('atmos')
+      lower.includes('atmos') ||
+      // Always remux proxy streams — they are upstream URLs that need container conversion
+      lower.includes('/proxy/stream')
     );
   }
 
+  /**
+   * Builds the remux stream URL, passing through the original source URL and any
+   * upstream headers encoded in the proxy URL format.
+   */
   private buildRemuxUrl(sourceUrl: string, startSec: number, audioTrack: string, videoMode: 'copy' | 'transcode'): string {
     const params = new URLSearchParams({
       url: sourceUrl,
@@ -120,12 +126,51 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
       audioTrack,
       videoMode,
     });
+
+    // Extract headers from proxy URL if present, or from PlayOptions
+    const headersParam = this.extractProxyHeaders(sourceUrl);
+    if (headersParam) {
+      params.set('headers', headersParam);
+    } else if (this.currentOptions?.headers && Object.keys(this.currentOptions.headers).length > 0) {
+      // Encode PlayOptions headers as base64url JSON (same format as proxy)
+      const headersJson = JSON.stringify(this.currentOptions.headers);
+      const b64 = btoa(headersJson)
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+      params.set('headers', b64);
+    }
+
     return `/api/remux/stream?${params.toString()}`;
+  }
+
+  /**
+   * If the source URL is a proxy URL (/proxy/stream?url=...&headers=...),
+   * extracts the headers parameter to pass through to the remux endpoint.
+   */
+  private extractProxyHeaders(url: string): string | null {
+    const match = url.match(/[?&]headers=([^&]+)/);
+    return match ? match[1] : null;
   }
 
   private async probeMediaInfo(sourceUrl: string) {
     try {
-      const probeRes = await fetch(`/api/remux/probe?url=${encodeURIComponent(sourceUrl)}`);
+      // Build probe URL with headers passthrough
+      let probeUrl = `/api/remux/probe?url=${encodeURIComponent(sourceUrl)}`;
+
+      const headersParam = this.extractProxyHeaders(sourceUrl);
+      if (headersParam) {
+        probeUrl += `&headers=${encodeURIComponent(headersParam)}`;
+      } else if (this.currentOptions?.headers && Object.keys(this.currentOptions.headers).length > 0) {
+        const headersJson = JSON.stringify(this.currentOptions.headers);
+        const b64 = btoa(headersJson)
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
+        probeUrl += `&headers=${encodeURIComponent(b64)}`;
+      }
+
+      const probeRes = await fetch(probeUrl);
       if (!probeRes.ok) return;
 
       const data = await probeRes.json();
@@ -165,6 +210,7 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
   /**
    * Initializes playback via the Remux Engine.
    * Uses native progressive fMP4 with tagged hvc1/avc1 bitstream.
+   * Multi-connection downloading is handled server-side.
    */
   private async startRemuxStream(sourceUrl: string, startSec: number): Promise<void> {
     const video = this.getOrCreateVideo();
@@ -172,6 +218,8 @@ export class NativeVideoPlayerWeb extends WebPlugin implements NativeVideoPlayer
     this.currentTimeOffsetMs = Math.round(startSec * 1000);
 
     const remuxUrl = this.buildRemuxUrl(sourceUrl, startSec, this.selectedAudioTrackId, this.videoMode);
+
+    console.log(`[NativeVideoPlayerWeb] Starting remux stream: ${remuxUrl.substring(0, 150)}...`);
 
     // Progressive fMP4: Native browser C++ pipeline demuxes audio & video tracks concurrently
     video.src = remuxUrl;
