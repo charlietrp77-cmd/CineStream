@@ -23,6 +23,7 @@ COPY --from=builder /build/node_modules ./node_modules
 COPY --from=builder /build/packages/server/dist ./packages/server/dist
 COPY --from=builder /build/packages/server/package.json ./packages/server/
 COPY --from=builder /build/packages/web/dist ./packages/web/dist
+COPY --from=builder /build/packages/kodi-addon ./packages/kodi-addon
 
 RUN mkdir -p /app/data /mnt/nas
 

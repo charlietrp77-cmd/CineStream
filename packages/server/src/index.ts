@@ -75,6 +75,21 @@ async function bootstrap() {
   await fastify.register(backupRoutes);
   await fastify.register(remuxRoutes);
 
+  // Kodi Addon Distribution endpoint
+  fastify.get('/kodi/plugin.video.cinestream.zip', async (_req, reply) => {
+    const kodiZipPath = path.resolve(__dirname, '../../kodi-addon/plugin.video.cinestream-1.0.0.zip');
+    if (fs.existsSync(kodiZipPath)) {
+      reply.header('Content-Type', 'application/zip');
+      reply.header('Content-Disposition', 'attachment; filename="plugin.video.cinestream-1.0.0.zip"');
+      return reply.send(fs.createReadStream(kodiZipPath));
+    }
+    return reply.status(404).send({ error: 'Kodi addon package not found' });
+  });
+
+  fastify.get('/kodi/cinestream.zip', async (_req, reply) => {
+    return reply.redirect('/kodi/plugin.video.cinestream.zip');
+  });
+
   // Serve static frontend in production
   const webDistPath = path.resolve(__dirname, '../../web/dist');
   if (fs.existsSync(webDistPath)) {

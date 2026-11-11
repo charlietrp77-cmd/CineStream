@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="plugin.video.cinestream" name="CineStream" version="1.0.0" provider-name="CineStream">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+    </requires>
+    <extension point="xbmc.python.pluginsource" library="default.py">
+        <provides>video</provides>
+    </extension>
+    <extension point="xbmc.addon.metadata">
+        <platform>all</platform>
+        <license>MIT</license>
+        <summary lang="en_GB">CineStream - Self-Hosted Streaming Client</summary>
+        <description lang="en_GB">Experience your CineStream media library, Easynews 4K HDR streams, Debrid links, and local NAS storage on Kodi with native hardware acceleration, Dolby Vision, and TrueHD Atmos audio pass-through.</description>
+        <disclaimer lang="en_GB">Connects to your self-hosted CineStream server.</disclaimer>
+        <assets>
+            <icon>icon.png</icon>
+            <fanart>fanart.jpg</fanart>
+        </assets>
+    </extension>
+</addon>
