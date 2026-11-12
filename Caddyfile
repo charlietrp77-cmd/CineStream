@@ -4,11 +4,44 @@
 
 # When DUCKDNS_SUBDOMAIN is configured, Caddy automatically acquires and renews free Let's Encrypt HTTPS certificates
 {$DUCKDNS_SUBDOMAIN:localhost}.duckdns.org {
-    reverse_proxy cinestream:3000
+    handle /stremio* {
+        reverse_proxy aiostreams:3000
+    }
+    handle /api/v1/* {
+        reverse_proxy aiostreams:3000
+    }
+    handle /proxy/* {
+        reverse_proxy cinestream:3000 {
+            flush_interval -1
+        }
+    }
+    handle /api/nas/stream/* {
+        reverse_proxy cinestream:3000 {
+            flush_interval -1
+        }
+    }
+    handle {
+        reverse_proxy cinestream:3000
+    }
 }
 
 # Local LAN HTTP access fallback
 :80 {
-    reverse_proxy cinestream:3000
+    handle /stremio* {
+        reverse_proxy aiostreams:3000
+    }
+    handle /proxy/* {
+        reverse_proxy cinestream:3000 {
+            flush_interval -1
+        }
+    }
+    handle /api/nas/stream/* {
+        reverse_proxy cinestream:3000 {
+            flush_interval -1
+        }
+    }
+    handle {
+        reverse_proxy cinestream:3000
+    }
 }
 

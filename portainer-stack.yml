@@ -29,7 +29,19 @@ services:
                 reverse_proxy aiostreams:3000
             }
 
-            # All other traffic routes to CineStream Web & Player
+            # Zero-buffer multi-thread proxy & local NAS streaming for Stremio over HTTPS
+            handle /proxy/* {
+                reverse_proxy cinestream:3000 {
+                    flush_interval -1
+                }
+            }
+            handle /api/nas/stream/* {
+                reverse_proxy cinestream:3000 {
+                    flush_interval -1
+                }
+            }
+
+            # CineStream Stremio Addon (/cs-stremio/*), API, and Web Control Center
             handle {
                 reverse_proxy cinestream:3000
             }
@@ -37,6 +49,16 @@ services:
         :80 {
             handle /stremio* {
                 reverse_proxy aiostreams:3000
+            }
+            handle /proxy/* {
+                reverse_proxy cinestream:3000 {
+                    flush_interval -1
+                }
+            }
+            handle /api/nas/stream/* {
+                reverse_proxy cinestream:3000 {
+                    flush_interval -1
+                }
             }
             handle {
                 reverse_proxy cinestream:3000
@@ -138,7 +160,9 @@ services:
       - ALTHUB_API_KEY=${ALTHUB_API_KEY:-}
       - NZBGEEK_API_KEY=${NZBGEEK_API_KEY:-}
       - DRUNKENSLUG_API_KEY=${DRUNKENSLUG_API_KEY:-}
-      - AUTO_CACHE_EPISODES_AHEAD=${AUTO_CACHE_EPISODES_AHEAD:-0}
+      - AUTO_CACHE_EPISODES_AHEAD=${AUTO_CACHE_EPISODES_AHEAD:-2}
+      - AUTO_CACHE_MOVIE_REWATCH_COUNT=${AUTO_CACHE_MOVIE_REWATCH_COUNT:-2}
+      - SMART_SERIES_TRIGGER_EPISODES=${SMART_SERIES_TRIGGER_EPISODES:-3}
       - PROXY_CONNECTIONS=${PROXY_CONNECTIONS:-8}
       - PROXY_CHUNK_SIZE_MB=${PROXY_CHUNK_SIZE_MB:-8}
       - PROXY_READAHEAD_MB=${PROXY_READAHEAD_MB:-64}

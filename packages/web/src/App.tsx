@@ -13,6 +13,7 @@ import { MediaDetailModal } from './components/MediaDetailModal';
 import { DownloadsDrawer } from './components/DownloadsDrawer';
 import { InstantSearch } from './components/InstantSearch';
 import { PlayerOverlay } from './components/PlayerOverlay';
+import { StremioSetupModal } from './components/StremioSetupModal';
 import { Capacitor } from '@capacitor/core';
 
 interface ActivePlayerState {
@@ -50,6 +51,7 @@ export const App: React.FC = () => {
   const [trendingSeries, setTrendingSeries] = useState<CatalogItem[]>([]);
   const [continueWatching, setContinueWatching] = useState<WatchProgress[]>([]);
   const [myListItems, setMyListItems] = useState<CatalogItem[]>([]);
+  const [likedItems, setLikedItems] = useState<CatalogItem[]>([]);
   const [nasCachedItems, setNasCachedItems] = useState<CatalogItem[]>([]);
   const [nasJobs, setNasJobs] = useState<NasCacheItem[]>([]);
   const [activeDownloadsCount, setActiveDownloadsCount] = useState(0);
@@ -58,6 +60,7 @@ export const App: React.FC = () => {
   const [selectedModalItem, setSelectedModalItem] = useState<CatalogItem | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isDownloadsOpen, setIsDownloadsOpen] = useState(false);
+  const [isStremioSetupOpen, setIsStremioSetupOpen] = useState(false);
   const [playerState, setPlayerState] = useState<ActivePlayerState | null>(null);
 
   // Global TV Remote / Keyboard Back Hierarchy (Player > MediaDetail > Search > Downloads > Tabs)
@@ -81,6 +84,10 @@ export const App: React.FC = () => {
           setIsDownloadsOpen(false);
           return true;
         }
+        if (isStremioSetupOpen) {
+          setIsStremioSetupOpen(false);
+          return true;
+        }
         if (activeTab !== 'home') {
           setActiveTab('home');
           return true;
@@ -88,7 +95,7 @@ export const App: React.FC = () => {
         return false;
       },
     });
-  }, [playerState, selectedModalItem, isSearchOpen, isDownloadsOpen, activeTab]);
+  }, [playerState, selectedModalItem, isSearchOpen, isDownloadsOpen, isStremioSetupOpen, activeTab]);
 
   // Fetch catalog when active profile or top 10 filters change
   useEffect(() => {
@@ -100,6 +107,7 @@ export const App: React.FC = () => {
     fetchTrendingSeries();
     fetchContinueWatching();
     fetchMyList();
+    fetchLikedItems();
     fetchNasJobs();
   }, [activeProfile, isGateOpen]);
 
@@ -194,6 +202,33 @@ export const App: React.FC = () => {
           genres: [],
         }));
         setMyListItems(mapped);
+      }
+    } catch (_) {}
+  };
+
+  const fetchLikedItems = async () => {
+    try {
+      const res = await fetch('/api/likes', {
+        headers: { 'X-Profile-Id': activeProfile?.id || '' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const rows: any[] = data.likes || [];
+        const mapped: CatalogItem[] = rows.map((r) => ({
+          id: r.tmdb_id,
+          imdbId: r.imdb_id,
+          tmdbId: r.tmdb_id,
+          type: r.media_type,
+          title: r.title || r.imdb_id,
+          overview: '',
+          posterUrl: r.poster_url,
+          backdropUrl: r.backdrop_url,
+          clearLogoUrl: null,
+          voteAverage: 0,
+          isNasCached: false,
+          genres: [],
+        }));
+        setLikedItems(mapped);
       }
     } catch (_) {}
   };
@@ -353,6 +388,7 @@ export const App: React.FC = () => {
           <Navbar
             onOpenSearch={() => setIsSearchOpen(true)}
             onOpenDownloads={() => setIsDownloadsOpen(true)}
+            onOpenStremioSetup={() => setIsStremioSetupOpen(true)}
             activeTab={activeTab}
             onSelectTab={setActiveTab}
             activeDownloadsCount={activeDownloadsCount}
@@ -468,6 +504,7 @@ export const App: React.FC = () => {
         <Navbar
           onOpenSearch={() => setIsSearchOpen(true)}
           onOpenDownloads={() => setIsDownloadsOpen(true)}
+          onOpenStremioSetup={() => setIsStremioSetupOpen(true)}
           activeTab={activeTab}
           onSelectTab={handleSelectTab}
           activeDownloadsCount={activeDownloadsCount}
@@ -546,6 +583,16 @@ export const App: React.FC = () => {
                       title="⚡ Cached on Local NAS"
                       subtitle="Instantly playable from your home server over Gigabit LAN"
                       items={nasCachedItems}
+                      onSelect={(item) => setSelectedModalItem(item)}
+                      nasStatusMap={nasStatusMap}
+                    />
+                  )}
+
+                  {likedItems.length > 0 && (
+                    <VirtualPosterRow
+                      title="❤️ Liked & Auto-Cached"
+                      subtitle="Titles liked for local NAS caching in best available quality"
+                      items={likedItems}
                       onSelect={(item) => setSelectedModalItem(item)}
                       nasStatusMap={nasStatusMap}
                     />
@@ -898,6 +945,7 @@ export const App: React.FC = () => {
             setSelectedModalItem(null);
             fetchContinueWatching();
             fetchMyList();
+            fetchLikedItems();
           }}
           onPlayStream={(stream: ResolvedStream, mediaTitle: string, epTitle?: string) => {
             setSelectedModalItem(null);
@@ -934,6 +982,12 @@ export const App: React.FC = () => {
           setSelectedModalItem(item);
         }}
         nasStatusMap={nasStatusMap}
+      />
+
+      {/* Stremio, SSL & Smart Cache Settings Modal */}
+      <StremioSetupModal
+        isOpen={isStremioSetupOpen}
+        onClose={() => setIsStremioSetupOpen(false)}
       />
 
       {/* Storage & Downloads Drawer */}

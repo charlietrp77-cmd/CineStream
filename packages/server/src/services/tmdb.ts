@@ -307,6 +307,38 @@ class TmdbService {
     return enriched.filter((i): i is CatalogItem => i !== null);
   }
 
+  public async findByImdbId(
+    imdbId: string,
+    preferredType?: 'movie' | 'tv'
+  ): Promise<{
+    tmdbId: number;
+    mediaType: 'movie' | 'tv';
+    title: string;
+    year: string;
+    posterUrl: string | null;
+    backdropUrl: string | null;
+  } | null> {
+    if (!imdbId || !imdbId.startsWith('tt')) return null;
+    const data = await this.fetchTmdb<any>(`/find/${encodeURIComponent(imdbId)}?external_source=imdb_id`, 86400 * 7);
+    if (!data) return null;
+
+    const movieMatch = data.movie_results?.[0];
+    const tvMatch = data.tv_results?.[0];
+    const chosen = preferredType === 'tv' ? (tvMatch || movieMatch) : preferredType === 'movie' ? (movieMatch || tvMatch) : (movieMatch || tvMatch);
+    if (!chosen) return null;
+
+    const mediaType: 'movie' | 'tv' = chosen === tvMatch ? 'tv' : 'movie';
+    const rawDate = chosen.release_date || chosen.first_air_date || '';
+    return {
+      tmdbId: chosen.id,
+      mediaType,
+      title: chosen.title || chosen.name || imdbId,
+      year: rawDate ? rawDate.split('-')[0] : '',
+      posterUrl: chosen.poster_path ? `https://image.tmdb.org/t/p/w500${chosen.poster_path}` : null,
+      backdropUrl: chosen.backdrop_path ? `https://image.tmdb.org/t/p/w1280${chosen.backdrop_path}` : null,
+    };
+  }
+
   public async getSeriesDetails(tmdbId: number): Promise<any> {
     return this.fetchTmdb<any>(`/tv/${tmdbId}?append_to_response=external_ids,images`, 86400);
   }

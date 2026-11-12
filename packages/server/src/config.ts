@@ -42,6 +42,8 @@ export interface AppConfig {
   duckdnsToken: string;
   backupPath: string;
   autoCacheEpisodesAhead: number;
+  autoCacheMovieRewatchCount: number;
+  smartSeriesTriggerEpisodes: number;
 }
 
 function sanitizeSecret(val?: string): string {
@@ -101,6 +103,8 @@ export const config: AppConfig = {
   enableCaddyDuckdns,
   duckdnsSubdomain: isDuckDnsValid ? rawDuckDns : '',
   duckdnsToken: sanitizeSecret(process.env.DUCKDNS_TOKEN),
-  autoCacheEpisodesAhead: Math.max(0, parseInt(process.env.AUTO_CACHE_EPISODES_AHEAD || '0', 10)),
+  autoCacheEpisodesAhead: Math.max(0, parseInt(process.env.AUTO_CACHE_EPISODES_AHEAD || '2', 10)),
+  autoCacheMovieRewatchCount: Math.max(1, parseInt(process.env.AUTO_CACHE_MOVIE_REWATCH_COUNT || '2', 10)),
+  smartSeriesTriggerEpisodes: Math.max(1, parseInt(process.env.SMART_SERIES_TRIGGER_EPISODES || '3', 10)),
 };
 

@@ -95,6 +95,31 @@ export interface StreamCacheRow {
   expires_at: number;
 }
 
+export interface MediaLikeRow {
+  profile_id: string;
+  imdb_id: string;
+  tmdb_id: number;
+  media_type: 'movie' | 'tv';
+  title: string;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  allow_cache: number;
+  created_at: number;
+}
+
+export interface MediaPlayStatsRow {
+  profile_id: string;
+  imdb_id: string;
+  tmdb_id: number;
+  media_type: 'movie' | 'tv';
+  season: number;
+  episode: number;
+  title: string;
+  play_count: number;
+  last_played_at: number;
+  created_at: number;
+}
+
 export const DDL_STATEMENTS = `
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
@@ -203,11 +228,41 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS media_likes (
+  profile_id TEXT NOT NULL,
+  imdb_id TEXT NOT NULL,
+  tmdb_id INTEGER NOT NULL DEFAULT 0,
+  media_type TEXT NOT NULL DEFAULT 'movie',
+  title TEXT NOT NULL DEFAULT '',
+  poster_url TEXT,
+  backdrop_url TEXT,
+  allow_cache INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (profile_id, imdb_id),
+  FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS media_play_stats (
+  profile_id TEXT NOT NULL,
+  imdb_id TEXT NOT NULL,
+  tmdb_id INTEGER NOT NULL DEFAULT 0,
+  media_type TEXT NOT NULL DEFAULT 'movie',
+  season INTEGER NOT NULL DEFAULT 0,
+  episode INTEGER NOT NULL DEFAULT 0,
+  title TEXT NOT NULL DEFAULT '',
+  play_count INTEGER NOT NULL DEFAULT 0,
+  last_played_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (profile_id, imdb_id, season, episode)
+);
+
 CREATE INDEX IF NOT EXISTS idx_watch_progress_profile ON watch_progress(profile_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_my_list_profile ON my_list(profile_id, added_at DESC);
 CREATE INDEX IF NOT EXISTS idx_nas_cache_status ON nas_cache_items(status);
 CREATE INDEX IF NOT EXISTS idx_nas_cache_lookup ON nas_cache_items(imdb_id, season, episode);
 CREATE INDEX IF NOT EXISTS idx_stream_cache_expires ON stream_cache(expires_at);
 CREATE INDEX IF NOT EXISTS idx_stream_cache_lookup ON stream_cache(imdb_id, season, episode);
+CREATE INDEX IF NOT EXISTS idx_media_likes_profile ON media_likes(profile_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_media_play_stats_lookup ON media_play_stats(profile_id, imdb_id);
 `;
 

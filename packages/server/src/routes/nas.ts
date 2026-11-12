@@ -7,6 +7,8 @@ import { aioStreams } from '../services/aiostreams';
 import { nasDownloader } from '../services/nasDownloader';
 import { tmdb } from '../services/tmdb';
 import { getProfileById } from './profiles';
+import { pickBestDownloadCandidate, smartCacheService } from '../services/smartCacheService';
+import { arrService } from '../services/arrService';
 
 function sanitize(str: string): string {
   return str.replace(/[/\\?%*:|"<>]/g, '').trim();
@@ -169,6 +171,7 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
     }
 
     const firstEp = targetEpisodes[0];
+    let firstStreams: any[] = [];
     let lockedStream: any;
     if (body.streamUrl) {
       lockedStream = {
@@ -179,6 +182,7 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
         rawUrl: body.streamUrl,
         headers: body.streamHeaders || {},
         bingeGroup: body.preferredBingeGroup || null,
+        isDirectStream: !(/\.nzb(\?|$)/i.test(body.streamUrl) || /mode=getnzb/i.test(body.streamUrl)),
         badges: {
           resolution: (body.qualityBadge?.includes('4K') || body.qualityBadge?.includes('2160p')) ? '4K' : '1080p',
           dolbyVision: Boolean(body.qualityBadge?.includes('DV')),
@@ -201,16 +205,16 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
           ? `${body.imdbId}:${firstEp.season}:${firstEp.episode}`
           : body.imdbId;
 
-      const streams = await aioStreams.resolveStreams(body.mediaType, firstLookupId, configOverride);
-      if (streams.length === 0) {
+      firstStreams = await aioStreams.resolveStreams(body.mediaType, firstLookupId, configOverride);
+      if (firstStreams.length === 0) {
         return reply.status(404).send({ error: 'No available streams found on AIOStreams for this title' });
       }
 
-      // Choose best stream matching preferred quality
-      lockedStream = streams.find((s) => s.badges.resolution === (preferredQuality === '2160p' ? '4K' : '1080p'));
-      if (!lockedStream) {
-        lockedStream = streams[0];
-      }
+      // Choose best quality available (evaluates Debrid, Easynews, AND NZB by pure quality score)
+      lockedStream = pickBestDownloadCandidate(firstStreams, {
+        preferredQuality,
+        preferredBingeGroup: body.preferredBingeGroup,
+      });
     }
 
     const lockedBingeGroup = body.preferredBingeGroup || lockedStream.bingeGroup;
@@ -251,11 +255,58 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
       }
 
       let epStream = lockedStream;
+      let epCandidates = firstStreams;
       if (ep !== firstEp && !body.streamUrl) {
         const epLookupId = `${body.imdbId}:${ep.season}:${ep.episode}`;
-        const epStreams = await aioStreams.resolveStreams('tv', epLookupId, configOverride);
-        const match = epStreams.find((s) => lockedBingeGroup && s.bingeGroup === lockedBingeGroup);
-        epStream = match || epStreams[0] || lockedStream;
+        epCandidates = await aioStreams.resolveStreams('tv', epLookupId, configOverride);
+        epStream =
+          pickBestDownloadCandidate(epCandidates, {
+            preferredQuality,
+            preferredBingeGroup: lockedBingeGroup,
+          }) || lockedStream;
+      }
+
+      // Route raw uncached NZB releases cleanly through Radarr/Sonarr -> SABnzbd
+      const isDirect = epStream.isDirectStream !== false;
+      if (!isDirect && (epStream.nzbUrl || epStream.rawUrl)) {
+        const pushRes =
+          body.mediaType === 'movie'
+            ? await arrService.pushRadarrMovie({
+                tmdbId: body.tmdbId,
+                imdbId: body.imdbId,
+                movieTitle: showOrMovieTitle,
+                releaseTitle: epStream.rawReleaseTitle,
+                year,
+                targetSizeBytes: epStream.badges.sizeBytes || 0,
+                targetBadges: epStream.badges,
+                targetNzbUrl: epStream.nzbUrl || epStream.rawUrl,
+              })
+            : await arrService.pushSonarrSeries({
+                imdbId: body.imdbId,
+                seriesTitle: showOrMovieTitle,
+                releaseTitle: epStream.rawReleaseTitle,
+                seasonNumber: ep.season,
+                episodeNumber: ep.episode,
+                targetSizeBytes: epStream.badges.sizeBytes || 0,
+                targetBadges: epStream.badges,
+                targetNzbUrl: epStream.nzbUrl || epStream.rawUrl,
+              });
+        if (pushRes?.success) {
+          queuedCount++;
+          continue;
+        }
+        // Fallback to best direct HTTP candidate if Arr push failed
+        const fallbackDirect = pickBestDownloadCandidate(
+          epCandidates.filter((s: any) => s.isDirectStream !== false),
+          { preferredQuality, preferredBingeGroup: lockedBingeGroup }
+        );
+        if (!fallbackDirect) {
+          continue;
+        }
+        epStream = fallbackDirect;
+      }
+      if (epStream.isDirectStream === false) {
+        continue;
       }
 
       let targetPath = '';
@@ -353,18 +404,49 @@ export async function nasRoutes(fastify: FastifyInstance, _opts: FastifyPluginOp
   // Stream or download local NAS media file
   fastify.get('/api/nas/stream/:id', async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as { id: string };
-    const query = req.query as { download?: string };
+    const query = req.query as { download?: string; profileId?: string };
     const item = nasDownloader.getJob(id);
 
     if (!item || item.status !== 'completed' || !fs.existsSync(item.file_path)) {
       return reply.status(404).send({ error: 'Cached NAS file not found or not completed' });
     }
 
+    const isDownload = Boolean(query && (query.download === '1' || query.download === 'true'));
+    if (!isDownload) {
+      const rangeHeader = req.headers.range;
+      let isTinyProbe = false;
+      if (rangeHeader) {
+        const m = /bytes=(\d+)-(\d+)/.exec(rangeHeader);
+        if (m && parseInt(m[2], 10) - parseInt(m[1], 10) < 65536) {
+          isTinyProbe = true;
+        }
+      }
+      if (!isTinyProbe) {
+        const resolvedProfileId =
+          query.profileId ||
+          (req.headers['x-profile-id'] as string) ||
+          item.requested_by_profile_id ||
+          'default';
+        const profile = resolvedProfileId ? getProfileById(resolvedProfileId) : undefined;
+        smartCacheService
+          .recordStreamPlayback({
+            profileId: resolvedProfileId,
+            imdbId: item.imdb_id,
+            tmdbId: item.tmdb_id,
+            mediaType: item.media_type,
+            season: item.season,
+            episode: item.episode,
+            title: item.title,
+            configOverride: profile?.aiostreams_config_override,
+          })
+          .catch(() => {});
+      }
+    }
+
     const stat = fs.statSync(item.file_path);
     const totalSize = stat.size;
     const rawRange = req.headers.range;
     const filename = path.basename(item.file_path);
-    const isDownload = Boolean(query && (query.download === '1' || query.download === 'true'));
 
     let start = 0;
     let end = totalSize - 1;

@@ -51,6 +51,7 @@ export interface ResolvedStream {
   bingeGroup?: string;
   badges: StreamBadges;
   qualityScore: number;
+  rawQualityScore?: number;
   infoHash?: string;
   magnetUrl?: string;
   nzbUrl?: string;
@@ -811,17 +812,21 @@ class AioStreamsService {
         nzbUrl = raw.url;
       }
 
-      // Detect if this is strictly an NZB file descriptor (not a direct HTTP video stream)
+      // Detect if this is strictly an uncached NZB file descriptor (not a direct HTTP video stream).
+      // Note: TorBox / Premiumize cached Usenet streams return playable HTTPS video URLs and remain isDirectStream: true.
+      const isDebridOrEasynewsCachedUrl = /^https?:\/\/[^/]*(torbox|premiumize|real-?debrid|alldebrid|debrid-?link|easynews|rd-?cdn|tb-?cdn)/i.test(raw.url);
+      const isNzbFileUrl = Boolean(
+        /\.nzb(\?|$)/i.test(raw.url) ||
+        /mode=getnzb/i.test(raw.url) ||
+        (nzbUrl && raw.url === nzbUrl && !isDebridOrEasynewsCachedUrl)
+      );
+      const isRawNzbIndexer =
+        badges.source === 'AltHub' ||
+        badges.source === 'NZBGeek' ||
+        badges.source === 'DrunkenSlug';
       const isNzbOnly = Boolean(
-        nzbUrl && (
-          raw.url === nzbUrl ||
-          /\.nzb(\?|$)/i.test(raw.url) ||
-          /mode=getnzb/i.test(raw.url) ||
-          (raw.name && raw.name.includes('(NZB)')) ||
-          badges.source === 'AltHub' ||
-          badges.source === 'NZBGeek' ||
-          badges.source === 'DrunkenSlug'
-        )
+        isNzbFileUrl ||
+        ((isRawNzbIndexer || (raw.name && raw.name.includes('(NZB)'))) && !isDebridOrEasynewsCachedUrl)
       );
 
       // NZB files are indexer XML files, not video streams.
@@ -843,6 +848,7 @@ class AioStreamsService {
         bingeGroup: raw.behaviorHints?.bingeGroup,
         badges,
         qualityScore: effectiveScore,
+        rawQualityScore: score,
         infoHash,
         magnetUrl,
         nzbUrl,

@@ -17,6 +17,8 @@ import { providerRoutes } from './routes/providerRoutes';
 import { arrRoutes } from './routes/arrRoutes';
 import { backupRoutes } from './routes/backupRoutes';
 import { remuxRoutes } from './routes/remuxRoutes';
+import { likesRoutes } from './routes/likes';
+import { stremioRoutes } from './routes/stremioRoutes';
 import { bootstrapService } from './services/bootstrapService';
 import { backupService } from './services/backupService';
 
@@ -74,6 +76,8 @@ async function bootstrap() {
   await fastify.register(arrRoutes);
   await fastify.register(backupRoutes);
   await fastify.register(remuxRoutes);
+  await fastify.register(likesRoutes);
+  await fastify.register(stremioRoutes);
 
   // Kodi Addon Distribution endpoint
   fastify.get('/kodi/plugin.video.cinestream.zip', async (_req, reply) => {

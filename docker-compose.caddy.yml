@@ -35,7 +35,19 @@ services:
                 reverse_proxy aiostreams:3000
             }
 
-            # All other traffic routes to CineStream Web & Player
+            # Zero-buffer multi-thread proxy & local NAS streaming for Stremio over HTTPS
+            handle /proxy/* {
+                reverse_proxy cinestream:3000 {
+                    flush_interval -1
+                }
+            }
+            handle /api/nas/stream/* {
+                reverse_proxy cinestream:3000 {
+                    flush_interval -1
+                }
+            }
+
+            # CineStream Stremio Addon (/cs-stremio/*), API, and Web Control Center
             handle {
                 reverse_proxy cinestream:3000
             }
@@ -43,6 +55,16 @@ services:
         :80 {
             handle /stremio* {
                 reverse_proxy aiostreams:3000
+            }
+            handle /proxy/* {
+                reverse_proxy cinestream:3000 {
+                    flush_interval -1
+                }
+            }
+            handle /api/nas/stream/* {
+                reverse_proxy cinestream:3000 {
+                    flush_interval -1
+                }
             }
             handle {
                 reverse_proxy cinestream:3000

@@ -17,6 +17,8 @@ import {
   EyeOff,
   Magnet,
   FileDown,
+  Heart,
+  ExternalLink,
 } from 'lucide-react';
 import { CatalogItem, ResolvedStream, TvSeasonEpisode, NasCacheItem, ArrPushResult } from '../types/api';
 import { useProfileStore } from '../store/useProfileStore';
@@ -52,6 +54,11 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   // My List State
   const [isInMyList, setIsInMyList] = useState(false);
 
+  // Like (Allow & Auto-Cache) State + Rewatch Count
+  const [isLiked, setIsLiked] = useState(false);
+  const [playCount, setPlayCount] = useState(0);
+  const [likePending, setLikePending] = useState(false);
+
   // Provider Filter State
   const [providerFilter, setProviderFilter] = useState<string>('all');
 
@@ -77,6 +84,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       fetchWatchProgress();
     }
     checkMyList();
+    checkLikeStatus();
   }, [item]);
 
   useEffect(() => {
@@ -213,6 +221,63 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       console.error('Failed to load streams:', e);
     } finally {
       setLoadingStreams(false);
+    }
+  };
+
+  const checkLikeStatus = async () => {
+    try {
+      const targetImdb = item.imdbId;
+      if (!targetImdb) return;
+      const res = await fetch(`/api/likes/${encodeURIComponent(targetImdb)}`, {
+        headers: { 'X-Profile-Id': activeProfile?.id || '' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setIsLiked(Boolean(data.liked));
+        setPlayCount(data.playCount || 0);
+      }
+    } catch (_) {}
+  };
+
+  const toggleLike = async () => {
+    if (likePending) return;
+    setLikePending(true);
+    try {
+      const nextLiked = !isLiked;
+      const res = await fetch('/api/likes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Profile-Id': activeProfile?.id || '',
+        },
+        body: JSON.stringify({
+          imdbId: currentImdbId || item.imdbId,
+          tmdbId: item.tmdbId,
+          mediaType: item.type,
+          title: item.title,
+          posterUrl: item.posterUrl,
+          backdropUrl: item.backdropUrl,
+          liked: nextLiked,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setIsLiked(Boolean(data.liked));
+        if (data.liked) {
+          const outcomeMsg =
+            data.cacheOutcome?.message ||
+            'Caching best available quality (Debrid / NZB) to local NAS!';
+          setNasSuccessMessage(`❤️ Liked "${item.title}"! ${outcomeMsg}`);
+          setTimeout(() => setNasSuccessMessage(null), 6000);
+          fetchNasJobs();
+        } else {
+          setNasSuccessMessage(`Removed "${item.title}" from Liked auto-cache list.`);
+          setTimeout(() => setNasSuccessMessage(null), 4000);
+        }
+      }
+    } catch (_) {
+    } finally {
+      setLikePending(false);
     }
   };
 
@@ -973,15 +1038,55 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     return null;
   })();
 
-  const handlePlayBest = () => {
-    if (bestStream) {
-      if (!isDirectPlayable(bestStream)) {
-        setNasSuccessMessage('⚠️ No direct streams found. Push an NZB release to download to NAS first.');
-        setTimeout(() => setNasSuccessMessage(null), 6000);
-        return;
-      }
-      onPlayStream(bestStream, item.title, selectedEpisode?.title);
+  const buildTrackedStreamUrl = (stream: ResolvedStream): string => {
+    const raw = stream.url.startsWith('http')
+      ? stream.url
+      : `${window.location.origin}${stream.url}`;
+    const sep = raw.includes('?') ? '&' : '?';
+    const params = new URLSearchParams({
+      imdbId: currentImdbId || item.imdbId,
+      mediaType: item.type,
+      profileId: activeProfile?.id || 'default',
+    });
+    if (item.type === 'tv') {
+      params.set('season', String(selectedSeason));
+      params.set('episode', String(selectedEpisode?.episodeNumber || 1));
     }
+    return `${raw}${sep}${params.toString()}`;
+  };
+
+  const launchExternalVlc = (stream: ResolvedStream) => {
+    const fullUrl = buildTrackedStreamUrl(stream);
+    const label = item.type === 'tv'
+      ? `${item.title} - S${String(selectedSeason).padStart(2, '0')}E${String(selectedEpisode?.episodeNumber || 1).padStart(2, '0')}`
+      : item.title;
+    const m3uContent = `#EXTM3U\n#EXTINF:-1,${label} (${stream.badges.resolution} ${stream.badges.source})\n${fullUrl}\n`;
+    const blob = new Blob([m3uContent], { type: 'audio/x-mpegurl' });
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `${label.replace(/[/\\?%*:|"<>]/g, '')}.m3u`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(blobUrl);
+    setNasSuccessMessage(`📺 Launched ${stream.badges.resolution} ${stream.badges.source} in VLC (.m3u playlist) via multi-thread proxy!`);
+    setTimeout(() => setNasSuccessMessage(null), 5000);
+  };
+
+  const handleOpenInStremio = () => {
+    const stremioType = item.type === 'tv' ? 'series' : 'movie';
+    const imdb = currentImdbId || item.imdbId;
+    const stremioDeepLink = `stremio://detail/${stremioType}/${encodeURIComponent(imdb)}`;
+    window.location.href = stremioDeepLink;
+  };
+
+  const handlePlayBest = () => {
+    if (isNativeApp && bestStream && isDirectPlayable(bestStream)) {
+      onPlayStream(bestStream, item.title, selectedEpisode?.title);
+      return;
+    }
+    handleOpenInStremio();
   };
 
   return (
@@ -1059,6 +1164,12 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 <span className="text-gray-300">{item.releaseDate.split('-')[0]}</span>
               )}
 
+              {playCount > 0 && (
+                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded font-bold">
+                  Watched {playCount}x
+                </span>
+              )}
+
               {item.genres?.slice(0, 3).map((g) => (
                 <span key={g} className="bg-white/10 px-2 py-0.5 rounded text-gray-300">
                   {g}
@@ -1084,15 +1195,36 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               data-autofocus="true"
               data-priority="high"
               onClick={handlePlayBest}
-              disabled={loadingStreams || streams.length === 0}
-              className="flex items-center gap-2 bg-white text-black hover:bg-white/90 disabled:opacity-50 px-6 py-2.5 rounded font-bold text-sm shadow transition-all focus:outline-none focus:ring-4 focus:ring-red-600 focus:scale-105"
+              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-5 py-2.5 rounded font-bold text-sm shadow transition-all focus:outline-none focus:ring-4 focus:ring-purple-400 focus:scale-105"
             >
-              <Play className="w-4 h-4 fill-black" />
-              <span>
-                {bestStream
-                  ? `Play Best (${bestStream.badges.source || 'Stream'} • ${bestStream.badges.resolution})`
-                  : 'Play Best Stream'}
-              </span>
+              {isNativeApp ? <Play className="w-4 h-4 fill-white" /> : <ExternalLink className="w-4 h-4" />}
+              <span>{isNativeApp ? 'Play Best' : 'Open in Stremio'}</span>
+            </button>
+
+            {bestStream && isDirectPlayable(bestStream) && (
+              <button
+                onClick={() => launchExternalVlc(bestStream)}
+                className="flex items-center gap-2 bg-white text-black hover:bg-white/90 px-4 py-2.5 rounded font-bold text-sm shadow transition-all"
+                title={`Launch ${bestStream.badges.resolution} ${bestStream.badges.source} in VLC via 8-thread proxy`}
+              >
+                <Play className="w-4 h-4 fill-black" />
+                <span>Play in VLC ({bestStream.badges.resolution})</span>
+              </button>
+            )}
+
+            {/* Like & Allow / Auto-Cache Movie Button */}
+            <button
+              onClick={toggleLike}
+              disabled={likePending}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded font-bold text-sm border transition-all disabled:opacity-50 ${
+                isLiked
+                  ? 'bg-rose-600/25 text-rose-300 border-rose-500/60 hover:bg-rose-600/35'
+                  : 'bg-white/10 hover:bg-white/20 text-white border-white/15'
+              }`}
+              title="Like this title to allow & immediately cache its highest quality release (Debrid/NZB) to NAS"
+            >
+              <Heart className={`w-4 h-4 ${isLiked ? 'fill-rose-400 text-rose-400' : ''}`} />
+              <span>{likePending ? 'Caching...' : isLiked ? 'Liked (Cache Enabled)' : 'Like & Cache'}</span>
             </button>
 
             {/* Cache to NAS Button & Dropdown */}
@@ -1657,20 +1789,28 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   tabIndex={0}
                   onClick={() => {
                     if (!playable) {
-                      setNasSuccessMessage('📰 Usenet NZB release: push to Sonarr/Radarr or SABnzbd to download to NAS before playing.');
+                      setNasSuccessMessage('📰 Usenet NZB release: click Cache to NAS or Push to Arr to download to NAS before playing.');
                       setTimeout(() => setNasSuccessMessage(null), 6000);
                       return;
                     }
-                    onPlayStream(stream, item.title, selectedEpisode?.title);
+                    if (isNativeApp) {
+                      onPlayStream(stream, item.title, selectedEpisode?.title);
+                    } else {
+                      launchExternalVlc(stream);
+                    }
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       if (!playable) {
-                        setNasSuccessMessage('📰 Usenet NZB release: push to Sonarr/Radarr or SABnzbd to download to NAS before playing.');
+                        setNasSuccessMessage('📰 Usenet NZB release: click Cache to NAS or Push to Arr to download to NAS before playing.');
                         setTimeout(() => setNasSuccessMessage(null), 6000);
                         return;
                       }
-                      onPlayStream(stream, item.title, selectedEpisode?.title);
+                      if (isNativeApp) {
+                        onPlayStream(stream, item.title, selectedEpisode?.title);
+                      } else {
+                        launchExternalVlc(stream);
+                      }
                     }
                   }}
                   className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-white ${

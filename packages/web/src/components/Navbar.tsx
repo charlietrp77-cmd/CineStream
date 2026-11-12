@@ -23,6 +23,7 @@ import {
 interface NavbarProps {
   onOpenSearch: () => void;
   onOpenDownloads: () => void;
+  onOpenStremioSetup: () => void;
   activeTab: string;
   onSelectTab: (tab: string) => void;
   activeDownloadsCount: number;
@@ -48,6 +49,7 @@ const ProviderQuotaIcon: React.FC<{ provider: string }> = ({ provider }) => {
 export const Navbar: React.FC<NavbarProps> = ({
   onOpenSearch,
   onOpenDownloads,
+  onOpenStremioSetup,
   activeTab,
   onSelectTab,
   activeDownloadsCount,
@@ -150,7 +152,17 @@ export const Navbar: React.FC<NavbarProps> = ({
         )}
 
         {/* Right Controls */}
-        <div className="flex items-center gap-4 sm:gap-6">
+        <div className="flex items-center gap-3 sm:gap-5">
+          {/* Stremio, SSL & Smart Cache Setup Button */}
+          <button
+            onClick={onOpenStremioSetup}
+            className="hidden sm:flex items-center gap-1.5 bg-purple-600/20 hover:bg-purple-600/35 text-purple-300 border border-purple-500/40 px-2.5 py-1 rounded-full text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-purple-400"
+            title="Stremio Addon URL, DuckDNS SSL & Intelligent Caching Settings"
+          >
+            <Zap className="w-3.5 h-3.5 text-purple-400" />
+            <span>Stremio &amp; Cache</span>
+          </button>
+
           {/* Offline Mode Badge */}
           {isOfflineMode && (
             <button
@@ -252,6 +264,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           }`}
         >
           My List
+        </button>
+        <button
+          onClick={onOpenStremioSetup}
+          className="transition-colors whitespace-nowrap px-3 py-1 rounded-full bg-purple-600/30 text-purple-200 border border-purple-500/40 font-bold"
+        >
+          ⚡ Stremio &amp; Cache
         </button>
       </div>
     </nav>
