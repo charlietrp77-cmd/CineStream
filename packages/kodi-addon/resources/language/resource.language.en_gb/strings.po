@@ -46,3 +46,4 @@ msgstr "Auto-Play Highest Quality Stream"
 msgctxt "#30014"
 msgid "Always Show Stream Selection Dialog"
 msgstr "Always Show Stream Selection Dialog"
+

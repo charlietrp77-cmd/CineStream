@@ -112,3 +112,4 @@ class CineStreamAPI:
             'last_stream_url': ''
         }
         return self._post('/api/progress', payload)
+

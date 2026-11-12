@@ -90,6 +90,28 @@ async function bootstrap() {
     return reply.redirect('/kodi/plugin.video.cinestream.zip');
   });
 
+  // Kodi Skin Distribution endpoint
+  fastify.get('/kodi/skin.cinestream.zip', async (_req, reply) => {
+    const skinZipPath = path.resolve(__dirname, '../../kodi-addon/skin.cinestream-1.0.0.zip');
+    if (fs.existsSync(skinZipPath)) {
+      reply.header('Content-Type', 'application/zip');
+      reply.header('Content-Disposition', 'attachment; filename="skin.cinestream-1.0.0.zip"');
+      return reply.send(fs.createReadStream(skinZipPath));
+    }
+    return reply.status(404).send({ error: 'CineStream skin package not found' });
+  });
+
+  // Kodi Jurialmunkey Dependency Repo endpoint
+  fastify.get('/kodi/repository.jurialmunkey.zip', async (_req, reply) => {
+    const repoZipPath = path.resolve(__dirname, '../../kodi-addon/repository.jurialmunkey.zip');
+    if (fs.existsSync(repoZipPath)) {
+      reply.header('Content-Type', 'application/zip');
+      reply.header('Content-Disposition', 'attachment; filename="repository.jurialmunkey.zip"');
+      return reply.send(fs.createReadStream(repoZipPath));
+    }
+    return reply.status(404).send({ error: 'Repository package not found' });
+  });
+
   // Serve static frontend in production
   const webDistPath = path.resolve(__dirname, '../../web/dist');
   if (fs.existsSync(webDistPath)) {
