@@ -112,6 +112,21 @@ async function bootstrap() {
     return reply.status(404).send({ error: 'Repository package not found' });
   });
 
+  // Kodi TMDb Helper Dependency endpoint
+  fastify.get('/kodi/plugin.video.themoviedb.helper.zip', async (_req, reply) => {
+    const tmdbZipPath = path.resolve(__dirname, '../../kodi-addon/plugin.video.themoviedb.helper.zip');
+    if (fs.existsSync(tmdbZipPath)) {
+      reply.header('Content-Type', 'application/zip');
+      reply.header('Content-Disposition', 'attachment; filename="plugin.video.themoviedb.helper.zip"');
+      return reply.send(fs.createReadStream(tmdbZipPath));
+    }
+    return reply.status(404).send({ error: 'TMDb Helper package not found' });
+  });
+
+  fastify.get('/kodi/tmdbhelper.zip', async (_req, reply) => {
+    return reply.redirect('/kodi/plugin.video.themoviedb.helper.zip');
+  });
+
   // Serve static frontend in production
   const webDistPath = path.resolve(__dirname, '../../web/dist');
   if (fs.existsSync(webDistPath)) {
